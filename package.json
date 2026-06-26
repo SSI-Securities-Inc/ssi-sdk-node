@@ -1,5 +1,5 @@
 {
-  "name": "@ssi/ssi-sdk",
+  "name": "@ssi-sdk",
   "version": "3.0.4",
   "description": "SSI SDK for Node.js – market data, trading and real-time streaming",
   "main": "dist/index.js",

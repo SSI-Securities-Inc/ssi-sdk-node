@@ -1,6 +1,6 @@
 {
-  "name": "@ssi-sdk",
-  "version": "3.0.4",
+  "name": "@ssi.developer/ssi-sdk",
+  "version": "3.0.5",
   "description": "SSI SDK for Node.js – market data, trading and real-time streaming",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

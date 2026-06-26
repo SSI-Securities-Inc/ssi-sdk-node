@@ -23,11 +23,11 @@ Node.js/TypeScript SDK cho nền tảng giao dịch chứng khoán SSI. Hỗ tr�
 ## Cài đặt
 
 ```bash
-npm install @ssi/ssi-sdk
+npm install @ssi.developer/ssi-sdk
 # hoặc
-yarn add @ssi/ssi-sdk
+yarn add @ssi.developer/ssi-sdk
 # hoặc
-pnpm add @ssi/ssi-sdk
+pnpm add @ssi.developer/ssi-sdk
 ```
 
 ---
@@ -37,7 +37,7 @@ pnpm add @ssi/ssi-sdk
 Tạo đối tượng `Config` (hoặc truyền trực tiếp `ConfigOptions` vào client `Auth`):
 
 ```typescript
-import { Config } from '@ssi/ssi-sdk';
+import { Config } from '@ssi.developer/ssi-sdk';
 
 const config = new Config({
   clientId: "YOUR_CLIENT_ID",
@@ -97,7 +97,7 @@ Config / ConfigOptions → Auth → authenticate(otp) → Data / Trading / Strea
 ### Sử dụng TypeScript/ESM
 
 ```typescript
-import { Auth, Data, Trading, Stream, Board } from '@ssi/ssi-sdk';
+import { Auth, Data, Trading, Stream, Board } from '@ssi.developer/ssi-sdk';
 
 async function main() {
   const auth = new Auth({
@@ -135,7 +135,7 @@ main().catch(console.error);
 ### Chỉ dùng dữ liệu thị trường (không cần OTP)
 
 ```typescript
-import { Auth, Data } from '@ssi/ssi-sdk';
+import { Auth, Data } from '@ssi.developer/ssi-sdk';
 
 const auth = new Auth({
   apiKey: "YOUR_API_KEY",
@@ -297,7 +297,7 @@ const ohlc = await data.marketData.getOhlc1DayHistorical(
 ### 3.2. Danh sách chỉ số thị trường
 
 ```typescript
-import { Board } from '@ssi/ssi-sdk';
+import { Board } from '@ssi.developer/ssi-sdk';
 
 // Lấy tất cả chỉ số
 const indices = await data.marketData.getIndexes();
@@ -474,7 +474,7 @@ Truy cập qua `trading.trading` (client `Trading`).
 ### 5.1. Đặt lệnh
 
 ```typescript
-import { OrderSide, OrderType } from '@ssi/ssi-sdk';
+import { OrderSide, OrderType } from '@ssi.developer/ssi-sdk';
 
 // Lệnh giới hạn (LO)
 const result = await trading.trading.placeLimitOrder(
@@ -621,7 +621,7 @@ stream.streaming.subscribeSymbolTrade(["SSI"]);
 stream.streaming.subscribeSymbolQuote(["SSI"]);
 
 // Subscribe OHLCV theo interval
-import { Timeframe } from '@ssi/ssi-sdk';
+import { Timeframe } from '@ssi.developer/ssi-sdk';
 stream.streaming.subscribeSymbolOhlcv(["SSI"], Timeframe.MINUTE_1);
 
 // Subscribe theo sàn
@@ -651,7 +651,7 @@ stream.streaming.ping(undefined, 30000);
 ### 6.5. Ví dụ streaming hoàn chỉnh
 
 ```typescript
-import { Auth, Stream, Timeframe } from '@ssi/ssi-sdk';
+import { Auth, Stream, Timeframe } from '@ssi.developer/ssi-sdk';
 
 async function run() {
   const auth = new Auth({
@@ -682,7 +682,7 @@ async function run() {
 SDK sử dụng hệ thống exception phân cấp:
 
 ```typescript
-import { SSIError } from '@ssi/ssi-sdk';
+import { SSIError } from '@ssi.developer/ssi-sdk';
 
 try {
   await auth.authenticate("wrong_otp");
@@ -727,10 +727,10 @@ const auth = new Auth({
 
 ### Enums
 
-Tất cả enum có thể import từ `@ssi/ssi-sdk`:
+Tất cả enum có thể import từ `@ssi.developer/ssi-sdk`:
 
 ```typescript
-import { OrderSide, OrderType, OrderStatus, Board, AccountType, Timeframe } from '@ssi/ssi-sdk';
+import { OrderSide, OrderType, OrderStatus, Board, AccountType, Timeframe } from '@ssi.developer/ssi-sdk';
 ```
 
 #### `OrderSide`
@@ -805,7 +805,7 @@ import { OrderSide, OrderType, OrderStatus, Board, AccountType, Timeframe } from
 
 ### Models / Types
 
-Các kiểu dữ liệu (Interfaces/Types) có thể import từ `@ssi/ssi-sdk`:
+Các kiểu dữ liệu (Interfaces/Types) có thể import từ `@ssi.developer/ssi-sdk`:
 
 #### Authentication
 

@@ -1,0 +1,36 @@
+name: Publish to npm
+
+on:
+  push:
+    # Trigger workflow chỉ khi bạn push một tag có dạng v1.0.0, v3.0.4, v...
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout mã nguồn từ GitHub
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Thiết lập Node.js và cấu hình npm registry
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+
+      # 3. Cài đặt dependencies sạch (sử dụng package-lock.json)
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Build build output
+      - name: Build SDK
+        run: npm run build
+
+      # 5. Publish lên npm dùng NPM_TOKEN đã cấu hình trong Secrets
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

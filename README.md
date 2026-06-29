@@ -2,7 +2,11 @@
 
 Node.js/TypeScript SDK cho nền tảng giao dịch chứng khoán SSI. Hỗ trợ REST API và WebSocket streaming.
 
-**Yêu cầu:** Node.js >= 18.0.0
+[![npm version](https://img.shields.io/npm/v/@ssi.developer/ssi-sdk?logo=npm&label=npm)](https://www.npmjs.com/package/@ssi.developer/ssi-sdk)
+[![npm downloads](https://img.shields.io/npm/dm/@ssi.developer/ssi-sdk?logo=npm&label=downloads)](https://www.npmjs.com/package/@ssi.developer/ssi-sdk)
+[![Node version](https://img.shields.io/node/v/@ssi.developer/ssi-sdk?logo=node.js)](https://github.com/SSI-Securities-Inc/ssi-sdk-node)
+[![Release](https://img.shields.io/github/v/release/SSI-Securities-Inc/ssi-sdk-node)](https://github.com/SSI-Securities-Inc/ssi-sdk-node/releases)
+[![License](https://img.shields.io/github/license/SSI-Securities-Inc/ssi-sdk-node)](https://github.com/SSI-Securities-Inc/ssi-sdk-node/blob/main/LICENSE)
 
 ## Mục lục
 

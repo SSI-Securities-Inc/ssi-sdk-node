@@ -5,11 +5,11 @@ import { OrderSide, OrderStatus, OrderType } from '../enums/trading.js';
 // ---------------------------------------------------------------------------
 export interface EquityAccountBalance {
   accountNo: string;
-  availableCash: number;
+  accountBalance: number;
   totalDebt: number;
   interestLoan: number;
   overdueFeeLoan: number;
-  withdrawal: number;
+  withdrawable: number;
   onHoldCash: number;
   sellUnmatched: number;
   sellT0: number;
@@ -22,14 +22,9 @@ export interface EquityAccountBalance {
   advanceCashT0: number;
   advanceCashT1: number;
   holdSubscription: number;
-  bankBalance: number;
-  dividend: number;
-  dividendMargin: number;
-  blockCash: number;
-  interestCash: number;
-  limitT0: number;
-  termDeposit: number;
 }
+
+
 
 export interface DerivativeAccountBalance {
   accountNo: string;

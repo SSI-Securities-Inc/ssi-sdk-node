@@ -37,6 +37,9 @@ export {
   DataTopic,
   DataType,
   HTTPStatus,
+  FCOType,
+  FCOOperator,
+  FCOStatus,
 } from './enums/index.js';
 
 // ---------------------------------------------------------------------------
@@ -84,9 +87,41 @@ export type {
   OddLotMessage,
   OrderStatusMessage,
   PortfolioMessage,
+  FCOOrderUpdateMessage,
   DataMessage,
   TradingMessage,
+  FCOParams,
+  FCOInfo,
+  FCOListRequest,
+  FCOListResponse,
+  FCOOrderBookRequest,
+  FCOOrder,
+  FCOOrderBookResponse,
+  GTDParams,
+  StopParams,
+  TrailingStopParams,
+  OCOParams,
+  BullBearParams,
+  FCOPlaceResponse,
+  FCOCancelRequest,
+  FCOCancelResponse,
 } from './models/index.js';
+
+export {
+  buildGtdPayload,
+  buildStopPayload,
+  buildTrailingStopPayload,
+  buildOcoPayload,
+  buildBullBearPayload,
+  mapFcoParams,
+  mapFcoInfo,
+  mapFcoListResponse,
+  mapFcoOrder,
+  mapFcoOrderBookResponse,
+  mapFcoPlaceResponse,
+  mapFcoCancelResponse,
+} from './models/index.js';
+
 
 // ---------------------------------------------------------------------------
 // Services (for direct use if needed)
@@ -115,9 +150,22 @@ export type { MessageHandler } from './transport/index.js';
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
-export { sign, toFloat, toInt, toNumber, toPrice, RateLimiter } from './utils/index.js';
+export {
+  sign,
+  toFloat,
+  toInt,
+  toNumber,
+  toPrice,
+  RateLimiter,
+  convertToDatetimeStr,
+  todayDateStr,
+  fromBeginningOfDay,
+  fromEndOfDay,
+  generateRequestId,
+} from './utils/index.js';
 
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
 export { VERSION } from './version.js';
+

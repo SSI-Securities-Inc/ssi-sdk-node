@@ -43,6 +43,41 @@ export {
   OddLotMessage,
   OrderStatusMessage,
   PortfolioMessage,
+  FCOOrderUpdateMessage,
   DataMessage,
   TradingMessage,
 } from './streaming.js';
+export {
+  mapFcoParams,
+  mapFcoInfo,
+  mapFcoListResponse,
+  mapFcoOrder,
+  mapFcoOrderBookResponse,
+  mapFcoPlaceResponse,
+  mapFcoCancelResponse,
+  buildGtdPayload,
+  buildStopPayload,
+  buildTrailingStopPayload,
+  buildOcoPayload,
+  buildBullBearPayload,
+} from './fco.js';
+export type {
+  FCOParams,
+  FCOInfo,
+  FCOListRequest,
+  FCOListResponse,
+  FCOOrderBookRequest,
+  FCOOrder,
+  FCOOrderBookResponse,
+  GTDParams,
+  StopParams,
+  TrailingStopParams,
+  OCOParams,
+  BullBearParams,
+  FCOPlaceResponse,
+  FCOCancelRequest,
+  FCOCancelResponse,
+} from './fco.js';
+
+
+

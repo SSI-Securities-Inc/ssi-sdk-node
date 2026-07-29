@@ -535,7 +535,71 @@ const maxBS = await trading.trading.getMaxBuySell("1234561", "SSI", 66000);
 console.log(`Max buy: ${maxBS.maxBuyQuantity}`);
 ```
 
+
+### 5.5. Lệnh điều kiện (Flexible Conditional Orders - FCO)
+
+SDK hỗ trợ 7 loại lệnh điều kiện linh hoạt FCO, tra cứu danh sách lệnh FCO, nhật ký sổ lệnh FCO và hủy lệnh FCO:
+
+```typescript
+import { FCOOperator, FCOStatus, OrderSide, OrderType, fromBeginningOfDay, fromEndOfDay } from '@ssi.developer/ssi-sdk';
+
+const accountNo = "1234561";
+const fromDate = fromBeginningOfDay(); // "YYYY/MM/DD 00:00:00"
+const toDate = fromEndOfDay();           // "YYYY/MM/DD 23:59:59"
+
+// 1. Đặt lệnh GTD (Good Till Date)
+const gtd = await trading.trading.placeFcoGtd(
+  accountNo, "SSI", OrderSide.BUY, 100, 25000, 500, fromDate, toDate
+);
+console.log(`FCO ID: ${gtd.fcoId}`);
+
+// 2. Đặt lệnh Stop Market
+const stop = await trading.trading.placeFcoStop(
+  accountNo, "SSI", OrderSide.SELL, 100, 24000, FCOOperator.LESSER_OR_EQUAL, fromDate, toDate
+);
+
+// 3. Đặt lệnh Stop Limit
+const stopLimit = await trading.trading.placeFcoStopLimit(
+  accountNo, "SSI", OrderSide.BUY, 100, 25500, 500, 25000, FCOOperator.GREATER_OR_EQUAL, fromDate, toDate
+);
+
+// 4. Đặt lệnh Trailing Stop
+const trailing = await trading.trading.placeFcoTrailingStop(
+  accountNo, "SSI", OrderSide.BUY, 100, 26000, 1000, fromDate, toDate
+);
+
+// 5. Đặt lệnh OCO (One-Cancels-the-Other)
+const oco = await trading.trading.placeFcoOco(
+  accountNo, "SSI", OrderSide.SELL, 100, 30000, 24000, OrderType.MTL, OrderType.MTL, 500, 500, fromDate, toDate
+);
+
+// 6. Tra cứu danh sách lệnh FCO
+const fcoList = await trading.trading.getFcoByAccountNo(accountNo, 1, 10);
+console.log(`FCO items: ${fcoList.fcoList.length}`);
+
+// 7. Hủy lệnh FCO
+await trading.trading.cancelFco(gtd.fcoId);
+```
+
+| Method | Mô tả |
+|--------|-------|
+| `placeFcoGtd(...)` | Đặt lệnh GTD (Good Till Date) |
+| `placeFcoStop(...)` | Đặt lệnh Stop Market |
+| `placeFcoStopLimit(...)` | Đặt lệnh Stop Limit |
+| `placeFcoTrailingStop(...)` | Đặt lệnh Trailing Stop Market |
+| `placeFcoTrailingStopLimit(...)` | Đặt lệnh Trailing Stop Limit |
+| `placeFcoOco(...)` | Đặt lệnh OCO (One Cancels the Other) |
+| `placeFcoBullBear(...)` | Đặt lệnh Bull Bear |
+| `cancelFco(fcoId)` | Hủy lệnh FCO theo `fcoId` |
+| `getFcoByAccountNo(...)` | Tra cứu danh sách FCO theo tài khoản |
+| `getFcoBySymbol(...)` | Tra cứu FCO lọc theo mã chứng khoán |
+| `getFcoByStatus(...)` | Tra cứu FCO lọc theo trạng thái |
+| `getFcoByDate(...)` | Tra cứu FCO lọc theo khoảng ngày |
+| `getFcoById(...)` | Lấy thông tin 1 lệnh FCO theo ID |
+| `getFcoOrderBook(...)` | Lấy lịch sử thực thi (Order Book) của FCO |
+
 ---
+
 
 ## 6. Streaming realtime
 
@@ -558,8 +622,10 @@ Truy cập qua `stream.streaming` (client `Stream`). Cần gọi `await stream.s
 | | `subscribeSymbolOhlcv(symbols, interval, onResponse?)` | OHLCV theo timeframe |
 | **Subscribe sàn/chỉ số** | `subscribeBoard(boards, onResponse?)` | Theo sàn |
 | | `subscribeIndex(indices, onResponse?)` | Theo chỉ số |
-| **Subscribe giao dịch** | `subscribeOrderStatus(accountNo?, onResponse?)` | Trạng thái lệnh |
+| **Subscribe giao dịch** | `subscribeOrderStatus(accountNo?, onResponse?)` | Trạng thái lệnh thường & FCO |
+| | `subscribeFcoOrderStatus(accountNo?, onResponse?)` | Alias cho `subscribeOrderStatus` |
 | | `subscribePortfolio(accountNo?, onResponse?)` | Portfolio changes |
+
 | **Unsubscribe** | `unsubscribeSymbol(symbols)` | Huỷ tất cả kênh cho mã |
 | | `unsubscribeSymbolTrade(symbols)` | Huỷ trade |
 | | `unsubscribeSymbolQuote(symbols)` | Huỷ quote |
@@ -605,10 +671,12 @@ stream.streaming.onHeartbeat = (msg) => {
 
 **Các message type nhận được qua `onTrading`:**
 
-| Topic | Message Type | Mô tả |
+| Topic / EventType | Message Type | Mô tả |
 |-------|-------------|-------|
-| `order.*` | `OrderStatusMessage` | Trạng thái lệnh |
+| `order.*` | `OrderStatusMessage` | Trạng thái lệnh thường |
+| `order.*` (eventType: `fcoEvent`) | `FCOOrderUpdateMessage` | Sự kiện cập nhật lệnh điều kiện FCO |
 | `portfolio.*` | `PortfolioMessage` | Thay đổi danh mục |
+
 
 ### 6.2. Subscribe dữ liệu thị trường
 

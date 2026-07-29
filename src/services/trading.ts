@@ -2,6 +2,9 @@ import { RestClient } from '../transport/restClient.js';
 import {
   EP_TRADING_ORDER,
   EP_TRADING_MAX_BUY_SELL,
+  EP_TRADING_FCO_ORDER,
+  EP_TRADING_FCO_LIST,
+  EP_TRADING_FCO_ORDER_BOOK,
   HEADER_SIGNATURE,
 } from '../constants.js';
 import {
@@ -13,12 +16,28 @@ import {
   CancelOrderResponse,
   MaxBuySellRequest,
   MaxBuySellResponse,
-} from '../models/trading.js';
+  FCOPlaceResponse,
+  FCOCancelResponse,
+  FCOListResponse,
+  FCOInfo,
+  FCOOrderBookResponse,
+  buildGtdPayload,
+  buildStopPayload,
+  buildTrailingStopPayload,
+  buildOcoPayload,
+  buildBullBearPayload,
+  mapFcoPlaceResponse,
+  mapFcoCancelResponse,
+  mapFcoListResponse,
+  mapFcoOrderBookResponse,
+} from '../models/index.js';
 import { OrderSide, OrderStatus, OrderType } from '../enums/trading.js';
+import { FCOType, FCOOperator, FCOStatus } from '../enums/fco.js';
 import { sign } from '../utils/crypto.js';
 import { toFloat, toInt } from '../utils/converter.js';
 import { requireString, requirePositiveNumber, requireNonNegative } from '../utils/validator.js';
 import { VERSION } from '../version.js';
+
 
 const DEFAULT_DEVICE_ID = 'A1:B2:C3:D4:E5:F6';
 const DEFAULT_USER_AGENT = `SSI Node SDK/${VERSION}`;
@@ -203,7 +222,298 @@ export class TradingService {
     const data = await this.restClient.get<{ data: unknown }>(EP_TRADING_MAX_BUY_SELL, params);
     return mapMaxBuySell((data as { data: unknown }).data);
   }
+
+  // ---------------------------------------------------------------------------
+  // Flexible Conditional Orders (FCO)
+  // ---------------------------------------------------------------------------
+
+  private async postFcoPayload(payload: Record<string, unknown>): Promise<FCOPlaceResponse> {
+    const sig = this.signPayload(payload);
+    const data = await this.restClient.post<{ data: unknown }>(
+      EP_TRADING_FCO_ORDER,
+      payload,
+      { [HEADER_SIGNATURE]: sig },
+    );
+    return mapFcoPlaceResponse(data);
+  }
+
+  async placeFcoGtd(
+    accountNo: string,
+    symbol: string,
+    side: OrderSide,
+    quantity: number,
+    price: number | string | OrderType,
+    priceSlip: number,
+    fromDate: string,
+    toDate: string,
+  ): Promise<FCOPlaceResponse> {
+    requireString(accountNo, 'accountNo');
+    requireString(symbol, 'symbol');
+    requirePositiveNumber(quantity, 'quantity');
+    const payload = buildGtdPayload({
+      accountNo,
+      symbol,
+      side,
+      quantity,
+      price,
+      priceSlip,
+      fromDate,
+      toDate,
+    });
+    return this.postFcoPayload(payload);
+  }
+
+  async placeFcoStop(
+    accountNo: string,
+    symbol: string,
+    side: OrderSide,
+    quantity: number,
+    stopPrice: number,
+    operator: FCOOperator,
+    fromDate: string,
+    toDate: string,
+  ): Promise<FCOPlaceResponse> {
+    requireString(accountNo, 'accountNo');
+    requireString(symbol, 'symbol');
+    requirePositiveNumber(quantity, 'quantity');
+    const payload = buildStopPayload({
+      accountNo,
+      symbol,
+      side,
+      quantity,
+      stopPrice,
+      operator,
+      fromDate,
+      toDate,
+      fcoType: FCOType.STOP,
+    });
+    return this.postFcoPayload(payload);
+  }
+
+  async placeFcoStopLimit(
+    accountNo: string,
+    symbol: string,
+    side: OrderSide,
+    quantity: number,
+    price: number | string,
+    priceSlip: number,
+    stopPrice: number,
+    operator: FCOOperator,
+    fromDate: string,
+    toDate: string,
+  ): Promise<FCOPlaceResponse> {
+    requireString(accountNo, 'accountNo');
+    requireString(symbol, 'symbol');
+    requirePositiveNumber(quantity, 'quantity');
+    const payload = buildStopPayload({
+      accountNo,
+      symbol,
+      side,
+      quantity,
+      price,
+      priceSlip,
+      stopPrice,
+      operator,
+      fromDate,
+      toDate,
+      fcoType: FCOType.STOP_LIMIT,
+    });
+    return this.postFcoPayload(payload);
+  }
+
+  async placeFcoTrailingStop(
+    accountNo: string,
+    symbol: string,
+    side: OrderSide,
+    quantity: number,
+    activePrice: number,
+    trailingAmount: number,
+    fromDate: string,
+    toDate: string,
+  ): Promise<FCOPlaceResponse> {
+    requireString(accountNo, 'accountNo');
+    requireString(symbol, 'symbol');
+    requirePositiveNumber(quantity, 'quantity');
+    const payload = buildTrailingStopPayload({
+      accountNo,
+      symbol,
+      side,
+      quantity,
+      activePrice,
+      trailingAmount,
+      fromDate,
+      toDate,
+      fcoType: FCOType.TRAILING_STOP,
+    });
+    return this.postFcoPayload(payload);
+  }
+
+  async placeFcoTrailingStopLimit(
+    accountNo: string,
+    symbol: string,
+    side: OrderSide,
+    quantity: number,
+    activePrice: number,
+    trailingAmount: number,
+    priceSlip: number,
+    fromDate: string,
+    toDate: string,
+  ): Promise<FCOPlaceResponse> {
+    requireString(accountNo, 'accountNo');
+    requireString(symbol, 'symbol');
+    requirePositiveNumber(quantity, 'quantity');
+    const payload = buildTrailingStopPayload({
+      accountNo,
+      symbol,
+      side,
+      quantity,
+      activePrice,
+      trailingAmount,
+      priceSlip,
+      fromDate,
+      toDate,
+      fcoType: FCOType.TRAILING_STOP_LIMIT,
+    });
+    return this.postFcoPayload(payload);
+  }
+
+  async placeFcoOco(
+    accountNo: string,
+    symbol: string,
+    side: OrderSide,
+    quantity: number,
+    tpActivePrice: number,
+    slActivePrice: number,
+    tpPrice: number | string | OrderType,
+    slPrice: number | string | OrderType,
+    tpSlip: number,
+    slSlip: number,
+    fromDate: string,
+    toDate: string,
+  ): Promise<FCOPlaceResponse> {
+    requireString(accountNo, 'accountNo');
+    requireString(symbol, 'symbol');
+    requirePositiveNumber(quantity, 'quantity');
+    const payload = buildOcoPayload({
+      accountNo,
+      symbol,
+      side,
+      quantity,
+      tpActivePrice,
+      slActivePrice,
+      tpPrice,
+      slPrice,
+      tpSlip,
+      slSlip,
+      fromDate,
+      toDate,
+    });
+    return this.postFcoPayload(payload);
+  }
+
+  async placeFcoBullBear(
+    accountNo: string,
+    symbol: string,
+    side: OrderSide,
+    quantity: number,
+    price: number | string | OrderType,
+    priceSlip: number,
+    tpActivePrice: number,
+    slActivePrice: number,
+    tpPrice: number | string | OrderType,
+    slPrice: number | string | OrderType,
+    tpSlip: number,
+    slSlip: number,
+    fromDate: string,
+    toDate: string,
+  ): Promise<FCOPlaceResponse> {
+    requireString(accountNo, 'accountNo');
+    requireString(symbol, 'symbol');
+    requirePositiveNumber(quantity, 'quantity');
+    const payload = buildBullBearPayload({
+      accountNo,
+      symbol,
+      side,
+      quantity,
+      price,
+      priceSlip,
+      tpActivePrice,
+      slActivePrice,
+      tpPrice,
+      slPrice,
+      tpSlip,
+      slSlip,
+      fromDate,
+      toDate,
+    });
+    return this.postFcoPayload(payload);
+  }
+
+  async cancelFco(fcoId: string): Promise<FCOCancelResponse> {
+    requireString(fcoId, 'fcoId');
+    const payload = { fcoId };
+    const sig = this.signPayload(payload);
+    const data = await this.restClient.delete<{ data: unknown }>(
+      EP_TRADING_FCO_ORDER,
+      payload,
+      { [HEADER_SIGNATURE]: sig },
+    );
+    return mapFcoCancelResponse(data);
+  }
+
+  private async getFcoListInternal(params: Record<string, unknown>): Promise<FCOListResponse> {
+    const data = await this.restClient.get<{ data: unknown }>(EP_TRADING_FCO_LIST, params);
+    return mapFcoListResponse(data);
+  }
+
+  async getFcoByAccountNo(
+    accountNo: string, pageIndex = 1, pageSize = 10,
+  ): Promise<FCOListResponse> {
+    requireString(accountNo, 'accountNo');
+    return this.getFcoListInternal({ accountNo, pageIndex, pageSize });
+  }
+
+  async getFcoBySymbol(
+    accountNo: string, symbol: string, pageIndex = 1, pageSize = 10,
+  ): Promise<FCOListResponse> {
+    requireString(accountNo, 'accountNo');
+    requireString(symbol, 'symbol');
+    return this.getFcoListInternal({ accountNo, symbol, pageIndex, pageSize });
+  }
+
+  async getFcoByStatus(
+    accountNo: string, processStatus: string | FCOStatus, pageIndex = 1, pageSize = 10,
+  ): Promise<FCOListResponse> {
+    requireString(accountNo, 'accountNo');
+    return this.getFcoListInternal({ accountNo, processStatus, pageIndex, pageSize });
+  }
+
+  async getFcoByDate(
+    accountNo: string, fromDate: string, toDate: string, pageIndex = 1, pageSize = 10,
+  ): Promise<FCOListResponse> {
+    requireString(accountNo, 'accountNo');
+    return this.getFcoListInternal({ accountNo, from: fromDate, to: toDate, pageIndex, pageSize });
+  }
+
+  async getFcoById(
+    accountNo: string, fcoId: string,
+  ): Promise<FCOInfo | null> {
+    requireString(accountNo, 'accountNo');
+    requireString(fcoId, 'fcoId');
+    const res = await this.getFcoListInternal({ accountNo, fcoId });
+    return res.fcoList.length > 0 ? res.fcoList[0] : null;
+  }
+
+  async getFcoOrderBook(
+    fcoId: string, pageIndex = 1, pageSize = 10,
+  ): Promise<FCOOrderBookResponse> {
+    requireString(fcoId, 'fcoId');
+    const params = { fcoId, pageIndex, pageSize };
+    const data = await this.restClient.get<{ data: unknown }>(EP_TRADING_FCO_ORDER_BOOK, params);
+    return mapFcoOrderBookResponse(data);
+  }
 }
+
 
 // ---------------------------------------------------------------------------
 // Mappers

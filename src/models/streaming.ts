@@ -1,5 +1,6 @@
 import { OrderSide, OrderStatus, OrderType } from '../enums/trading.js';
 import { StreamingChannel, StreamingMethod } from '../enums/streaming.js';
+import { FCOType, FCOStatus } from '../enums/fco.js';
 
 // ---------------------------------------------------------------------------
 // Outbound message
@@ -123,6 +124,24 @@ export interface PortfolioMessage {
   stockValue: number;
 }
 
+export interface FCOOrderUpdateMessage {
+  type: 'fcoOrderEvent';
+  fcoId: string;
+  processStatus?: FCOStatus;
+  matchedQuantity: number;
+  isPlaceOrder: boolean;
+  symbol: string;
+  quantity: number;
+  price: string;
+  accountNo: string;
+  updatedTime: string;
+  status: string;
+  message: string;
+  username: string;
+  eventType: string;
+  fcoType?: FCOType;
+}
+
 // ---------------------------------------------------------------------------
 // Union types for typed callbacks
 // ---------------------------------------------------------------------------
@@ -135,4 +154,5 @@ export type DataMessage =
   | PutMessage
   | OddLotMessage;
 
-export type TradingMessage = OrderStatusMessage | PortfolioMessage;
+export type TradingMessage = OrderStatusMessage | PortfolioMessage | FCOOrderUpdateMessage;
+

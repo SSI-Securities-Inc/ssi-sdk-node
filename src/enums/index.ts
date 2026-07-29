@@ -10,3 +10,5 @@ export {
   DataType,
 } from './streaming.js';
 export { HTTPStatus } from './error.js';
+export { FCOType, FCOOperator, FCOStatus } from './fco.js';
+

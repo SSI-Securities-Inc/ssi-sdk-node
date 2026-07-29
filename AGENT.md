@@ -143,7 +143,7 @@ const auth = new Auth(config);
 await auth.authenticate("123456");
 const trading = new Trading(auth);
 
-const accountNo = "1318761";
+const accountNo = "1234561";
 const fromDate = fromBeginningOfDay(); // "YYYY/MM/DD 00:00:00"
 const toDate = fromEndOfDay();           // "YYYY/MM/DD 23:59:59"
 
@@ -185,8 +185,8 @@ stream.streaming.onHeartbeat = (msg: HeartbeatMessage) => {
 
 await stream.streaming.connect();
 stream.streaming.subscribeSymbolTrade(["SSI"]);
-stream.streaming.subscribeOrderStatus("1318761");
-stream.streaming.subscribeFcoOrderStatus("1318761");
+stream.streaming.subscribeOrderStatus("1234561");
+stream.streaming.subscribeFcoOrderStatus("1234561");
 ```
 
 ---

@@ -29,7 +29,13 @@ jobs:
       - name: Build SDK
         run: npm run build
 
-      # 5. Publish lên npm dùng NPM_TOKEN đã cấu hình trong Secrets
+      # 5. Đồng bộ version từ git tag vào package.json
+      - name: Set version from tag
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          npm version "$TAG_VERSION" --no-git-tag-version --allow-same-version
+
+      # 6. Publish lên npm dùng NPM_TOKEN đã cấu hình trong Secrets
       - name: Publish to npm
         run: npm publish --access public
         env:

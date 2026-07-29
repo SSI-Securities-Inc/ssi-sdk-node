@@ -1,6 +1,6 @@
 {
   "name": "@ssi.developer/ssi-sdk",
-  "version": "3.0.5",
+  "version": "3.1.1",
   "description": "SSI SDK for Node.js – market data, trading and real-time streaming",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -18,6 +18,8 @@
     "LICENSE"
   ],
   "scripts": {
+    "sync-version": "node scripts/sync-version.mjs",
+    "prebuild": "npm run sync-version",
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "type-check": "tsc --noEmit",

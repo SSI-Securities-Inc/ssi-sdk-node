@@ -126,11 +126,11 @@ function mapEquityBalance(raw: unknown): EquityAccountBalance {
   const r = raw as Record<string, unknown>;
   return {
     accountNo: String(r['accountNo'] ?? ''),
-    availableCash: toFloat(r['availableCash']),
+    accountBalance: toFloat(r['accountBalance'] ?? r['availableCash']),
     totalDebt: toFloat(r['totalDebt']),
     interestLoan: toFloat(r['interestLoan']),
     overdueFeeLoan: toFloat(r['overdueFeeLoan']),
-    withdrawal: toFloat(r['withdrawal']),
+    withdrawable: toFloat(r['withdrawable'] ?? r['withdrawal']),
     onHoldCash: toFloat(r['onHoldCash']),
     sellUnmatched: toFloat(r['sellUnmatched']),
     sellT0: toFloat(r['sellT0']),
@@ -143,15 +143,10 @@ function mapEquityBalance(raw: unknown): EquityAccountBalance {
     advanceCashT0: toFloat(r['advanceCashT0']),
     advanceCashT1: toFloat(r['advanceCashT1']),
     holdSubscription: toFloat(r['holdSubscription']),
-    bankBalance: toFloat(r['bankBalance']),
-    dividend: toFloat(r['dividend']),
-    dividendMargin: toFloat(r['dividendMargin']),
-    blockCash: toFloat(r['blockCash']),
-    interestCash: toFloat(r['interestCash']),
-    limitT0: toFloat(r['limitT0']),
-    termDeposit: toFloat(r['termDeposit']),
   };
 }
+
+
 
 function mapDerivativeBalance(raw: unknown): DerivativeAccountBalance {
   const r = raw as Record<string, unknown>;

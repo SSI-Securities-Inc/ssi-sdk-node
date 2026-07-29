@@ -6,6 +6,7 @@ import {
   StreamingMethod,
   DataTopic,
 } from '../enums/streaming.js';
+import { FCOType, FCOStatus } from '../enums/fco.js';
 import {
   DataMessage,
   TradingMessage,
@@ -19,9 +20,11 @@ import {
   OddLotMessage,
   OrderStatusMessage,
   PortfolioMessage,
+  FCOOrderUpdateMessage,
 } from '../models/streaming.js';
 import { OrderSide, OrderStatus, OrderType } from '../enums/trading.js';
 import { toFloat, toInt } from '../utils/converter.js';
+
 
 export type DataCallback = (message: DataMessage) => void;
 export type TradingCallback = (message: TradingMessage) => void;
@@ -163,6 +166,11 @@ export class StreamingService {
     this.subscribe(StreamingChannel.TRADING, [`portfolio.${accountNo}`], onResponse);
   }
 
+  subscribeFcoOrderStatus(accountNo = '*', onResponse?: ResponseCallback): void {
+    this.subscribeOrderStatus(accountNo, onResponse);
+  }
+
+
   // ---------------------------------------------------------------------------
   // Unsubscribe
   // ---------------------------------------------------------------------------
@@ -274,10 +282,38 @@ function parseTradingMessage(
   topic: string,
   data: Record<string, unknown>,
 ): TradingMessage | null {
-  if (topic.startsWith('order.')) return parseOrderStatus(data);
+  if (topic.startsWith('order.')) {
+    if (data['eventType'] === 'fcoEvent') {
+      return parseFcoOrderUpdate(data);
+    }
+    return parseOrderStatus(data);
+  }
   if (topic.startsWith('portfolio.')) return parsePortfolio(data);
+  if (topic.startsWith('fco_order.') || topic.startsWith('fco.')) return parseFcoOrderUpdate(data);
   return null;
 }
+
+
+function parseFcoOrderUpdate(r: Record<string, unknown>): FCOOrderUpdateMessage {
+  return {
+    type: 'fcoOrderEvent',
+    fcoId: String(r['fcoId'] ?? ''),
+    processStatus: r['processStatus'] as FCOStatus | undefined,
+    matchedQuantity: toInt(r['matchedQuantity']),
+    isPlaceOrder: Boolean(r['isPlaceOrder'] ?? false),
+    symbol: String(r['symbol'] ?? ''),
+    quantity: toInt(r['quantity']),
+    price: String(r['price'] ?? ''),
+    accountNo: String(r['accountNo'] ?? ''),
+    updatedTime: String(r['updatedTime'] ?? ''),
+    status: String(r['status'] ?? ''),
+    message: String(r['message'] ?? ''),
+    username: String(r['username'] ?? ''),
+    eventType: String(r['eventType'] ?? ''),
+    fcoType: r['type'] as FCOType | undefined,
+  };
+}
+
 
 function parseTrade(r: Record<string, unknown>): TradeMessage {
   return {

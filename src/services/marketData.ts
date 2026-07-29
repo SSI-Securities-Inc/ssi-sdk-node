@@ -288,7 +288,18 @@ export class MarketDataService {
     );
     return ((data as { data: unknown[] }).data ?? []).map(mapSecuritiesSummary);
   }
+
+  async downloadOhlc1Minute(symbol: string): Promise<Record<string, unknown>> {
+    requireString(symbol, 'symbol');
+    throw new Error('OHLC download is not implemented yet');
+  }
+
+  async downloadOhlc1Day(symbol: string): Promise<Record<string, unknown>> {
+    requireString(symbol, 'symbol');
+    throw new Error('OHLC download is not implemented yet');
+  }
 }
+
 
 function todayDateStr(): string {
   const d = new Date();

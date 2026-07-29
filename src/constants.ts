@@ -23,8 +23,12 @@ export const HEADER_ACCEPT = 'Accept';
 export const HEADER_AUTHORIZATION = 'Authorization';
 export const HEADER_RETRY_AFTER = 'Retry-After';
 export const HEADER_SIGNATURE = 'X-Signature';
+export const HEADER_USER_AGENT = 'User-Agent';
+export const DEFAULT_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 export const CONTENT_TYPE_JSON = 'application/json';
 export const AUTH_SCHEME_BEARER = 'Bearer ';
+
 
 // ---------------------------------------------------------------------------
 // Base URLs
@@ -54,6 +58,9 @@ export const EP_DATA_SECURITIES_SUMMARY = '/api/v3/data/securitiesSummary';
 // ---------------------------------------------------------------------------
 export const EP_TRADING_ORDER = '/api/v3/trading/order';
 export const EP_TRADING_MAX_BUY_SELL = '/api/v3/trading/maxBuySell';
+export const EP_TRADING_FCO_ORDER = '/api/v3/trading/fco/order';
+export const EP_TRADING_FCO_LIST = '/api/v3/trading/fco/list';
+export const EP_TRADING_FCO_ORDER_BOOK = '/api/v3/trading/fco/orderbook';
 
 // ---------------------------------------------------------------------------
 // API Endpoints — Portfolio & Account

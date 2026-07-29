@@ -4,6 +4,8 @@ import {
   HEADER_AUTHORIZATION,
   HEADER_CONTENT_TYPE,
   HEADER_ACCEPT,
+  HEADER_USER_AGENT,
+  DEFAULT_USER_AGENT,
   CONTENT_TYPE_JSON,
   AUTH_SCHEME_BEARER,
 } from '../constants.js';
@@ -59,6 +61,7 @@ export class RestClient {
     this.headers = {
       [HEADER_CONTENT_TYPE]: CONTENT_TYPE_JSON,
       [HEADER_ACCEPT]: CONTENT_TYPE_JSON,
+      [HEADER_USER_AGENT]: DEFAULT_USER_AGENT,
     };
     this.axiosInstance = this.createInstance();
   }
@@ -70,7 +73,9 @@ export class RestClient {
       headers: {
         [HEADER_CONTENT_TYPE]: CONTENT_TYPE_JSON,
         [HEADER_ACCEPT]: CONTENT_TYPE_JSON,
+        [HEADER_USER_AGENT]: DEFAULT_USER_AGENT,
       },
+
       paramsSerializer: {
         serialize: (params) => {
           return Object.entries(params)

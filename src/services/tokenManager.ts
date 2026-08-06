@@ -48,7 +48,19 @@ export class TokenManager {
     this.restClient.setAuthHeader(token.accessToken);
   }
 
-  async authenticate(otp?: string, transactionId?: string): Promise<Token> {
+  async authenticate(
+    otp?: string,
+    transactionId?: string,
+    pollIntervalMs = 5000,
+    pollMaxRetries = 6,
+  ): Promise<Token> {
+    if (transactionId) {
+      return this.pollSmartOtp(transactionId, pollIntervalMs, pollMaxRetries);
+    }
+    return this.authenticateOnce(otp);
+  }
+
+  private async authenticateOnce(otp?: string, transactionId?: string): Promise<Token> {
     const body: TokenRequest = {
       apiKey: this.config.apiKey,
       apiSecret: this.config.apiSecret,
@@ -92,10 +104,8 @@ export class TokenManager {
     pollIntervalMs = 5000,
     pollMaxRetries = 6,
   ): Promise<string> {
-    if (otp) {
-      await this.authenticate(otp);
-    } else if (transactionId) {
-      await this.pollSmartOtp(transactionId, pollIntervalMs, pollMaxRetries);
+    if (otp || transactionId) {
+      await this.authenticate(otp, transactionId, pollIntervalMs, pollMaxRetries);
     } else if (this.isTokenExpired()) {
       if (this.hasRefreshToken()) {
         await this.refresh();
@@ -127,7 +137,7 @@ export class TokenManager {
   ): Promise<Token> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        return await this.authenticate(undefined, transactionId);
+        return await this.authenticateOnce(undefined, transactionId);
       } catch (err) {
         if (!this.isSmartOtpPending(err)) {
           throw err;

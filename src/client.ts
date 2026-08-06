@@ -30,8 +30,13 @@ export class Auth {
   }
 
   /** Authenticate and retrieve an access token. Pass `otp` or `transactionId` for trading/streaming. */
-  authenticate(otp?: string, transactionId?: string): Promise<Token> {
-    return this.tokenManager.authenticate(otp, transactionId);
+  authenticate(
+    otp?: string,
+    transactionId?: string,
+    pollIntervalMs = 5000,
+    pollMaxRetries = 6,
+  ): Promise<Token> {
+    return this.tokenManager.authenticate(otp, transactionId, pollIntervalMs, pollMaxRetries);
   }
 
   /** Refresh an existing access token using the refresh token. */

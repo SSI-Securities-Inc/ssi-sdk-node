@@ -2,7 +2,6 @@ import { RestClient } from '../transport/restClient.js';
 import { EP_ACCOUNT_INFO } from '../constants.js';
 import { Account } from '../models/account.js';
 import { AccountType } from '../enums/account.js';
-import { toInt } from '../utils/converter.js';
 
 export class AccountService {
   constructor(private readonly restClient: RestClient) {}

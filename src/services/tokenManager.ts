@@ -42,11 +42,12 @@ export class TokenManager {
     this.restClient.setAuthHeader(token.accessToken);
   }
 
-  async authenticate(otp?: string): Promise<Token> {
+  async authenticate(otp?: string, transactionId?: string): Promise<Token> {
     const body: TokenRequest = {
       apiKey: this.config.apiKey,
       apiSecret: this.config.apiSecret,
       ...(otp ? { otp } : {}),
+      ...(transactionId ? { transactionId } : {}),
     };
     const data = await this.restClient.post<{ data: Token } | Token>(EP_ACCESS_TOKEN, body);
     const raw = data as Record<string, unknown>;
@@ -77,23 +78,52 @@ export class TokenManager {
    * Ensure a valid access token is available, renewing if needed.
    *
    * If the token is expired and a refresh token exists, it is refreshed
-   * automatically (no OTP needed). Otherwise a fresh OTP is required — and only
-   * on first login or when no refresh token is available.
+   * automatically (no OTP needed). Otherwise a fresh OTP or Smart OTP transactionId is required.
    */
-  async ensureAuthenticated(otp?: string): Promise<string> {
+  async ensureAuthenticated(
+    otp?: string,
+    transactionId?: string,
+    pollIntervalMs = 5000,
+    pollMaxRetries = 6,
+  ): Promise<string> {
     if (this.isTokenExpired()) {
       if (this.hasRefreshToken()) {
         await this.refresh();
       } else if (otp) {
         await this.authenticate(otp);
+      } else if (transactionId) {
+        await this.pollSmartOtp(transactionId, pollIntervalMs, pollMaxRetries);
       } else {
         throw new AuthenticationError(
-          'OTP is required to authenticate — no refresh token available',
+          'OTP or Smart OTP transactionId is required to authenticate — no refresh token available',
           'AUTH_REQUIRED',
           0,
         );
       }
     }
     return this.token!.accessToken;
+  }
+
+  private async pollSmartOtp(
+    transactionId: string,
+    intervalMs: number,
+    maxRetries: number,
+  ): Promise<Token> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.authenticate(undefined, transactionId);
+      } catch (err) {
+        if (attempt >= maxRetries) {
+          throw new AuthenticationError(
+            `Smart OTP approval not confirmed after ${maxRetries} attempts — please approve on your device.`,
+            'SMART_OTP_TIMEOUT',
+            401,
+          );
+        }
+        console.log(`[Smart OTP] Pending approval (attempt ${attempt}/${maxRetries}), retrying in ${intervalMs / 1000}s...`);
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    }
+    throw new AuthenticationError('Smart OTP polling failed', 'SMART_OTP_FAILED', 401);
   }
 }

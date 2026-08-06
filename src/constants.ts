@@ -52,6 +52,7 @@ export const EP_DATA_INDEX_LIST = '/api/v3/data/indexList';
 export const EP_DATA_INDEX_SUMMARY = '/api/v3/data/indexSummary';
 export const EP_DATA_SECURITIES_BY_BOARD = '/api/v3/data/securitiesByBoard';
 export const EP_DATA_SECURITIES_SUMMARY = '/api/v3/data/securitiesSummary';
+export const EP_DATA_MASTER_DATA = '/api/v3/data/masterdata';
 
 // ---------------------------------------------------------------------------
 // API Endpoints — Trading

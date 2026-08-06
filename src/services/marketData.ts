@@ -5,6 +5,7 @@ import {
   EP_DATA_INDEX_SUMMARY,
   EP_DATA_SECURITIES_BY_BOARD,
   EP_DATA_SECURITIES_SUMMARY,
+  EP_DATA_MASTER_DATA,
   DEFAULT_PAGE,
   DEFAULT_SIZE,
 } from '../constants.js';
@@ -14,6 +15,7 @@ import {
   MarketIndexSummary,
   SecuritiesInfo,
   SecuritiesSummary,
+  MasterData,
 } from '../models/marketData.js';
 import { Board } from '../enums/marketData.js';
 import { Timeframe } from '../enums/timeframe.js';
@@ -289,6 +291,36 @@ export class MarketDataService {
     return ((data as { data: unknown[] }).data ?? []).map(mapSecuritiesSummary);
   }
 
+  async getMasterData(): Promise<MasterData[]> {
+    const today = todayDateStr();
+    return this.getMasterDataHistorical(today, today);
+  }
+
+  async getMasterDataHistorical(from: string, to: string): Promise<MasterData[]> {
+    requireString(from, 'from');
+    requireString(to, 'to');
+    const items: MasterData[] = [];
+    let page = DEFAULT_PAGE;
+    while (true) {
+      const params = {
+        From: from,
+        To: to,
+        pageIndex: page,
+        pageSize: DEFAULT_SIZE,
+      };
+      const data = await this.restClient.get<{ data: unknown[]; totalPage?: number }>(
+        EP_DATA_MASTER_DATA,
+        params,
+      );
+      const rawItems = (data as { data?: unknown[] }).data ?? [];
+      items.push(...rawItems.map(mapMasterData));
+      const totalPage = (data as { totalPage?: number }).totalPage ?? 1;
+      if (page >= totalPage || rawItems.length === 0) break;
+      page++;
+    }
+    return items;
+  }
+
   async downloadOhlc1Minute(symbol: string): Promise<Record<string, unknown>> {
     requireString(symbol, 'symbol');
     throw new Error('OHLC download is not implemented yet');
@@ -402,6 +434,18 @@ function mapSecuritiesSummary(raw: unknown): SecuritiesSummary {
     totalTradeBuy: toFloat(r['totalTradeBuy']),
     totalSell: toFloat(r['totalSell']),
     totalTradeSell: toFloat(r['totalTradeSell']),
+  };
+}
+
+function mapMasterData(raw: unknown): MasterData {
+  const r = raw as Record<string, unknown>;
+  return {
+    board: (r['board'] as Board) ?? null,
+    symbol: String(r['symbol'] ?? ''),
+    tradingDate: String(r['tradingDate'] ?? ''),
+    ceiling: toFloat(r['ceiling']),
+    floor: toFloat(r['floor']),
+    refPrice: toFloat(r['refPrice'] ?? r['referencePrice']),
   };
 }
 

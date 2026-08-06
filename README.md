@@ -164,14 +164,32 @@ console.log(`Expires at: ${token.expiresAt}`);
 
 // Hoặc truy cập qua tokenManager
 const token2 = await auth.tokenManager.authenticate("222222");
+
+// Smart OTP: truyền transactionId (lấy từ requestOtp) thay vì otp —
+// chỉ gọi được sau khi user đã bấm approve trên thiết bị.
+const token3 = await auth.authenticate(undefined, "TRANSACTION_ID");
 ```
 
+`otp` và `transactionId` loại trừ lẫn nhau — chỉ truyền một trong hai.
+
 ### 1.2. Yêu cầu gửi OTP
+
+Cùng một endpoint cho cả 2 loại tài khoản (SMS/email hoặc Smart OTP) — server
+tự quyết định cách gửi OTP dựa trên cách tài khoản đã đăng ký:
 
 ```typescript
 const result = await auth.requestOtp();
 console.log(result);
 ```
+
+**Tài khoản đã kích hoạt Smart OTP có 2 cách để xác thực:**
+
+1. **Approve trên app** — gọi `requestOtp()` để bắn yêu cầu lên thiết bị,
+   lấy `transactionId`, rồi dùng `ensureAuthenticated(undefined, transactionId)` để
+   SDK tự poll cho đến khi user bấm approve.
+2. **Lấy mã trực tiếp trên app** — mở app Smart OTP, đọc mã hiển thị sẵn, rồi
+   điền thẳng mã đó vào `ensureAuthenticated("123456")` (hoặc `authenticate("123456")`)
+   — **không cần** gọi `requestOtp()` trước.
 
 ### 1.3. Làm mới token
 
@@ -182,8 +200,21 @@ const token = await auth.refresh();
 ### 1.4. Tự động đảm bảo xác thực
 
 ```typescript
-// Tự động refresh nếu token hết hạn, hoặc yêu cầu OTP nếu chưa có token
-const accessToken = await auth.ensureAuthenticated("222222");
+// 1) Refresh nếu có refresh token còn dùng được
+const accessToken1 = await auth.ensureAuthenticated();
+
+// 2) OTP thường (SMS/email) hoặc mã Smart OTP lấy trực tiếp trên app
+const accessToken2 = await auth.ensureAuthenticated("222222");
+
+// 3) Smart OTP dạng push-approval (truyền transactionId lấy từ requestOtp)
+const otpResult = await auth.requestOtp();
+const transactionId = (otpResult.data as any)?.transactionId;
+const accessToken3 = await auth.ensureAuthenticated(
+  undefined,
+  transactionId,
+  5000, // pollIntervalMs (mặc định 5000ms)
+  6     // pollMaxRetries (mặc định 6 lần)
+);
 ```
 
 ### 1.5. Kiểm tra trạng thái token
@@ -253,6 +284,8 @@ Truy cập qua `data.marketData` (client `Data`).
 | | `getSecuritiesSummaryHistorical(symbol, from, to)` | Summary mã lịch sử |
 | | `getSecuritiesSummaryByIndex(index)` | Summary theo chỉ số |
 | | `getSecuritiesSummaryByIndexHistorical(index, from, to)` | Summary chỉ số lịch sử |
+| **Master Data** | `getMasterData()` | Giá trần/sàn/tham chiếu tất cả mã hôm nay |
+| | `getMasterDataHistorical(from, to)` | Giá trần/sàn/tham chiếu tất cả mã trong khoảng ngày |
 
 ### 3.1. Dữ liệu OHLC (nến)
 
@@ -373,6 +406,27 @@ const summaryIndexHist = await data.marketData.getSecuritiesSummaryByIndexHistor
 ```
 
 **Trả về:** `Promise<SecuritiesSummary[]>`
+
+### 3.6. Master Data (giá trần/sàn/tham chiếu)
+
+SDK tự động gọi hết các trang (API endpoint này phân trang), không cần tự truyền page/size.
+
+```typescript
+// Hôm nay
+const result = await data.marketData.getMasterData();
+
+// Khoảng ngày tự chọn
+const resultHist = await data.marketData.getMasterDataHistorical(
+  "2026/08/05",
+  "2026/08/06"
+);
+
+for (const item of result) {
+  console.log(`${item.board} ${item.symbol}: trần=${item.ceiling} sàn=${item.floor} TC=${item.refPrice}`);
+}
+```
+
+**Trả về:** `Promise<MasterData[]>` — mỗi `MasterData` có: `board`, `symbol`, `tradingDate`, `ceiling`, `floor`, `refPrice`.
 
 ---
 

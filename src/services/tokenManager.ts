@@ -1,8 +1,14 @@
 import { RestClient } from '../transport/restClient.js';
-import { EP_ACCESS_TOKEN, EP_REFRESH_TOKEN, EP_REQUEST_OTP } from '../constants.js';
+import {
+  EP_ACCESS_TOKEN,
+  EP_REFRESH_TOKEN,
+  EP_REQUEST_OTP,
+  SMART_OTP_PENDING_STATUS,
+  SMART_OTP_PENDING_CODE,
+} from '../constants.js';
 import { Token, TokenRequest, OTPRequest, RefreshTokenRequest } from '../models/auth.js';
 import { Config } from '../config.js';
-import { AuthenticationError } from '../exceptions.js';
+import { APIError, AuthenticationError } from '../exceptions.js';
 
 export class TokenManager {
   private token: Token | null = null;
@@ -104,6 +110,15 @@ export class TokenManager {
     return this.token!.accessToken;
   }
 
+  private isSmartOtpPending(err: unknown): boolean {
+    if (err instanceof APIError) {
+      if (err.statusCode !== SMART_OTP_PENDING_STATUS) return false;
+      const body = err.responseBody as Record<string, unknown> | undefined;
+      return body?.code === SMART_OTP_PENDING_CODE;
+    }
+    return false;
+  }
+
   private async pollSmartOtp(
     transactionId: string,
     intervalMs: number,
@@ -113,6 +128,9 @@ export class TokenManager {
       try {
         return await this.authenticate(undefined, transactionId);
       } catch (err) {
+        if (!this.isSmartOtpPending(err)) {
+          throw err;
+        }
         if (attempt >= maxRetries) {
           throw new AuthenticationError(
             `Smart OTP approval not confirmed after ${maxRetries} attempts — please approve on your device.`,

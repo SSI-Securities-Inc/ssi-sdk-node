@@ -92,13 +92,13 @@ export class TokenManager {
     pollIntervalMs = 5000,
     pollMaxRetries = 6,
   ): Promise<string> {
-    if (this.isTokenExpired()) {
+    if (otp) {
+      await this.authenticate(otp);
+    } else if (transactionId) {
+      await this.pollSmartOtp(transactionId, pollIntervalMs, pollMaxRetries);
+    } else if (this.isTokenExpired()) {
       if (this.hasRefreshToken()) {
         await this.refresh();
-      } else if (otp) {
-        await this.authenticate(otp);
-      } else if (transactionId) {
-        await this.pollSmartOtp(transactionId, pollIntervalMs, pollMaxRetries);
       } else {
         throw new AuthenticationError(
           'OTP or Smart OTP transactionId is required to authenticate — no refresh token available',
@@ -112,9 +112,10 @@ export class TokenManager {
 
   private isSmartOtpPending(err: unknown): boolean {
     if (err instanceof APIError) {
-      if (err.statusCode !== SMART_OTP_PENDING_STATUS) return false;
       const body = err.responseBody as Record<string, unknown> | undefined;
-      return body?.code === SMART_OTP_PENDING_CODE;
+      const code = body?.code;
+      if (code === SMART_OTP_PENDING_CODE || code === 401114) return true;
+      if (err.statusCode === SMART_OTP_PENDING_STATUS) return true;
     }
     return false;
   }

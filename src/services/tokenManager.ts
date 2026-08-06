@@ -69,7 +69,11 @@ export class TokenManager {
     };
     const data = await this.restClient.post<{ data: Token } | Token>(EP_ACCESS_TOKEN, body);
     const raw = data as Record<string, unknown>;
-    this.token = (raw.data as Token | undefined) ?? (data as Token);
+    const tokenObj = (raw.data as Token | undefined) ?? (data as Token);
+    if (!tokenObj || typeof tokenObj !== 'object' || !('accessToken' in tokenObj) || !tokenObj.accessToken) {
+      throw new APIError('Push-approval is pending', '202', SMART_OTP_PENDING_STATUS, data);
+    }
+    this.token = tokenObj;
     this.restClient.setAuthHeader(this.token.accessToken);
     return this.token;
   }
@@ -124,8 +128,8 @@ export class TokenManager {
     if (err instanceof APIError) {
       const body = err.responseBody as Record<string, unknown> | undefined;
       const code = body?.code;
-      if (code === SMART_OTP_PENDING_CODE || code === 401114) return true;
-      if (err.statusCode === SMART_OTP_PENDING_STATUS) return true;
+      if (code === SMART_OTP_PENDING_CODE || code === 401114 || body?.status === 202) return true;
+      if (err.statusCode === SMART_OTP_PENDING_STATUS || err.statusCode === 202) return true;
     }
     return false;
   }

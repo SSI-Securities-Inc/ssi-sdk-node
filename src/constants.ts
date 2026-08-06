@@ -43,8 +43,8 @@ export const EP_ACCESS_TOKEN = '/api/v3/auth/token';
 export const EP_REFRESH_TOKEN = '/api/v3/auth/refresh';
 export const EP_REQUEST_OTP = '/api/v3/auth/requestOtp';
 
-// Smart OTP pending approval error code (HTTP 409 + code 401114)
-export const SMART_OTP_PENDING_STATUS = 409;
+// Smart OTP pending approval code (HTTP 202 + code 401114)
+export const SMART_OTP_PENDING_STATUS = 202;
 export const SMART_OTP_PENDING_CODE = 401114;
 
 // ---------------------------------------------------------------------------

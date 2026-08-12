@@ -95,3 +95,12 @@ export interface SecuritiesSummary {
   totalSell: number;
   totalTradeSell: number;
 }
+
+export interface MasterData {
+  board: Board | null;
+  symbol: string;
+  tradingDate: string;
+  ceiling: number;
+  floor: number;
+  refPrice: number;
+}

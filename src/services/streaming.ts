@@ -61,7 +61,7 @@ export class StreamingService {
   // Ping / heartbeat
   // ---------------------------------------------------------------------------
 
-  ping(onResponse?: ResponseCallback, intervalMs = 30_000): void {
+  ping(_onResponse?: ResponseCallback, intervalMs = 30_000): void {
     const send = () => {
       this.wsClient.send({
         method: StreamingMethod.PING_PONG,

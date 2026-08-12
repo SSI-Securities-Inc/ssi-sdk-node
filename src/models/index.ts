@@ -7,6 +7,7 @@ export {
   MarketIndexSummary,
   SecuritiesInfo,
   SecuritiesSummary,
+  MasterData,
 } from './marketData.js';
 export {
   PlaceOrderRequest,

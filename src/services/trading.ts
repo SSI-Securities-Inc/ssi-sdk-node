@@ -8,13 +8,11 @@ import {
   HEADER_SIGNATURE,
 } from '../constants.js';
 import {
-  PlaceOrderRequest,
   PlaceOrderResponse,
   ModifyOrderRequest,
   ModifyOrderResponse,
   CancelOrderRequest,
   CancelOrderResponse,
-  MaxBuySellRequest,
   MaxBuySellResponse,
   FCOPlaceResponse,
   FCOCancelResponse,
@@ -34,7 +32,7 @@ import {
 import { OrderSide, OrderStatus, OrderType } from '../enums/trading.js';
 import { FCOType, FCOOperator, FCOStatus } from '../enums/fco.js';
 import { sign } from '../utils/crypto.js';
-import { toFloat, toInt } from '../utils/converter.js';
+import { toInt } from '../utils/converter.js';
 import { requireString, requirePositiveNumber, requireNonNegative } from '../utils/validator.js';
 import { VERSION } from '../version.js';
 

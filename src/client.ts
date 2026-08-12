@@ -29,9 +29,14 @@ export class Auth {
     return this.tokenManager.requestOtp();
   }
 
-  /** Authenticate and retrieve an access token. Pass `otp` for trading/streaming. */
-  authenticate(otp?: string): Promise<Token> {
-    return this.tokenManager.authenticate(otp);
+  /** Authenticate and retrieve an access token. Pass `otp` or `transactionId` for trading/streaming. */
+  authenticate(
+    otp?: string,
+    transactionId?: string,
+    pollIntervalMs = 5000,
+    pollMaxRetries = 6,
+  ): Promise<Token> {
+    return this.tokenManager.authenticate(otp, transactionId, pollIntervalMs, pollMaxRetries);
   }
 
   /** Refresh an existing access token using the refresh token. */
@@ -41,10 +46,15 @@ export class Auth {
 
   /**
    * Return the current access token, renewing if expired. Refreshes via the
-   * refresh token when available, otherwise requires `otp` (first login only).
+   * refresh token when available, otherwise requires `otp` or `transactionId` for Smart OTP polling.
    */
-  ensureAuthenticated(otp?: string): Promise<string> {
-    return this.tokenManager.ensureAuthenticated(otp);
+  ensureAuthenticated(
+    otp?: string,
+    transactionId?: string,
+    pollIntervalMs = 5000,
+    pollMaxRetries = 6,
+  ): Promise<string> {
+    return this.tokenManager.ensureAuthenticated(otp, transactionId, pollIntervalMs, pollMaxRetries);
   }
 
   getToken(): Token | null {

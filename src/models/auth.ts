@@ -2,6 +2,7 @@ export interface TokenRequest {
   apiKey: string;
   apiSecret: string;
   otp?: string;
+  transactionId?: string;
 }
 
 export interface OTPRequest {

@@ -43,6 +43,10 @@ export const EP_ACCESS_TOKEN = '/api/v3/auth/token';
 export const EP_REFRESH_TOKEN = '/api/v3/auth/refresh';
 export const EP_REQUEST_OTP = '/api/v3/auth/requestOtp';
 
+// Smart OTP pending approval code (HTTP 202 + code 401114)
+export const SMART_OTP_PENDING_STATUS = 202;
+export const SMART_OTP_PENDING_CODE = 401114;
+
 // ---------------------------------------------------------------------------
 // API Endpoints — Market Data
 // ---------------------------------------------------------------------------
@@ -52,6 +56,7 @@ export const EP_DATA_INDEX_LIST = '/api/v3/data/indexList';
 export const EP_DATA_INDEX_SUMMARY = '/api/v3/data/indexSummary';
 export const EP_DATA_SECURITIES_BY_BOARD = '/api/v3/data/securitiesByBoard';
 export const EP_DATA_SECURITIES_SUMMARY = '/api/v3/data/securitiesSummary';
+export const EP_DATA_MASTER_DATA = '/api/v3/data/masterdata';
 
 // ---------------------------------------------------------------------------
 // API Endpoints — Trading

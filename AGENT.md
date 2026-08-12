@@ -76,6 +76,8 @@ async function main() {
 | `getMarketIndexSummary` | `indexId?, fromDate?, toDate?, pageIndex?, pageSize?` | `Promise<MarketIndexSummary>` | Summary metrics for an index |
 | `getSecuritiesInfo` | `symbol?, market?, pageIndex?, pageSize?` | `Promise<SecuritiesInfo>` | Security details (listed shares, lot size, etc.) |
 | `getSecuritiesSummary` | `symbol?, market?, pageIndex?, pageSize?` | `Promise<SecuritiesSummary>` | Summary of stock transactions |
+| `getMasterData` | None | `Promise<MasterData[]>` | Query ceiling, floor, ref prices for today |
+| `getMasterDataHistorical` | `from, to` | `Promise<MasterData[]>` | Query ceiling, floor, ref prices for date range |
 
 ### 3.2 Account & Portfolio (`trading.account` & `trading.portfolio`)
 

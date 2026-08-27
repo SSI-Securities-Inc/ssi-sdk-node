@@ -22,6 +22,7 @@ export interface EquityAccountBalance {
   advanceCashT0: number;
   advanceCashT1: number;
   holdSubscription: number;
+  dividend: number;
 }
 
 

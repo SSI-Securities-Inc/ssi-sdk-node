@@ -76,6 +76,8 @@ export interface SecuritiesInfo {
   icbName: string | null;
   iIndex: number | null;
   iNav: number | null;
+  openInterest: number | null;
+  settlementPrice: number | null;
 }
 
 export interface SecuritiesSummary {
@@ -94,6 +96,16 @@ export interface SecuritiesSummary {
   totalTradeBuy: number;
   totalSell: number;
   totalTradeSell: number;
+  totalForeignBuy: number;
+  totalForeignBuyValue: number;
+  totalForeignSell: number;
+  totalForeignSellValue: number;
+  remainForeignRoom: number;
+  totalForeignRoom: number;
+  totalDeal: number;
+  totalDealValue: number;
+  openInterest: number;
+  settlementPrice: number;
 }
 
 export interface MasterData {

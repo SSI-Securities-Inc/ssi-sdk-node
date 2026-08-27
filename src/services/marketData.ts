@@ -22,6 +22,16 @@ import { Timeframe } from '../enums/timeframe.js';
 import { toFloat, toInt } from '../utils/converter.js';
 import { requireString } from '../utils/validator.js';
 
+/**
+ * Extract the `data` array from a REST response, tolerating a server quirk where
+ * an empty result set comes back as `{}` instead of `[]` (would otherwise crash
+ * `.map()` downstream).
+ */
+function toDataArray(data: unknown): unknown[] {
+  const items = (data as { data: unknown })?.data;
+  return Array.isArray(items) ? items : [];
+}
+
 export class MarketDataService {
   constructor(private readonly restClient: RestClient) {}
 
@@ -52,7 +62,7 @@ export class MarketDataService {
     };
 
     const data = await this.restClient.get<{ data: unknown[] }>(EP_DATA_OHLC, params);
-    const items = (data as { data: unknown[] }).data ?? [];
+    const items = toDataArray(data);
     return items.map(mapOhlc);
   }
 
@@ -159,7 +169,7 @@ export class MarketDataService {
 
   async getIndexes(): Promise<MarketIndexes[]> {
     const data = await this.restClient.get<{ data: unknown[] }>(EP_DATA_INDEX_LIST);
-    return ((data as { data: unknown[] }).data ?? []).map(mapIndexes);
+    return toDataArray(data).map(mapIndexes);
   }
 
   async getIndexesByBoard(board: Board): Promise<MarketIndexes[]> {
@@ -167,7 +177,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_INDEX_LIST, { board },
     );
-    return ((data as { data: unknown[] }).data ?? []).map(mapIndexes);
+    return toDataArray(data).map(mapIndexes);
   }
 
   async getIndexSummary(index: string): Promise<MarketIndexSummary | null> {
@@ -175,7 +185,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_INDEX_SUMMARY, { index },
     );
-    const items = (data as { data: unknown[] }).data ?? [];
+    const items = toDataArray(data);
     return items.length > 0 ? mapIndexSummary(items[0]) : null;
   }
 
@@ -187,7 +197,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_INDEX_SUMMARY, { index, tradingDate },
     );
-    const items = (data as { data: unknown[] }).data ?? [];
+    const items = toDataArray(data);
     return items.length > 0 ? mapIndexSummary(items[0]) : null;
   }
 
@@ -196,7 +206,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_INDEX_SUMMARY, { board },
     );
-    const items = (data as { data: unknown[] }).data ?? [];
+    const items = toDataArray(data);
     return items.length > 0 ? mapIndexSummary(items[0]) : null;
   }
 
@@ -208,7 +218,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_INDEX_SUMMARY, { board, tradingDate },
     );
-    const items = (data as { data: unknown[] }).data ?? [];
+    const items = toDataArray(data);
     return items.length > 0 ? mapIndexSummary(items[0]) : null;
   }
 
@@ -221,7 +231,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_SECURITIES_BY_BOARD, { symbol },
     );
-    const items = (data as { data: unknown[] }).data ?? [];
+    const items = toDataArray(data);
     return items.length > 0 ? mapSecuritiesInfo(items[0]) : null;
   }
 
@@ -230,7 +240,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_SECURITIES_BY_BOARD, { index },
     );
-    return ((data as { data: unknown[] }).data ?? []).map(mapSecuritiesInfo);
+    return toDataArray(data).map(mapSecuritiesInfo);
   }
 
   async getSecuritiesInfoByBoard(board: Board): Promise<SecuritiesInfo[]> {
@@ -238,7 +248,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_SECURITIES_BY_BOARD, { board },
     );
-    return ((data as { data: unknown[] }).data ?? []).map(mapSecuritiesInfo);
+    return toDataArray(data).map(mapSecuritiesInfo);
   }
 
   // ---------------------------------------------------------------------------
@@ -253,7 +263,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_SECURITIES_SUMMARY, { symbol, from: today, to: today, pageIndex: page, pageSize: size },
     );
-    return ((data as { data: unknown[] }).data ?? []).map(mapSecuritiesSummary);
+    return toDataArray(data).map(mapSecuritiesSummary);
   }
 
   async getSecuritiesSummaryHistorical(
@@ -265,7 +275,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_SECURITIES_SUMMARY, { symbol, from, to, pageIndex: page, pageSize: size },
     );
-    return ((data as { data: unknown[] }).data ?? []).map(mapSecuritiesSummary);
+    return toDataArray(data).map(mapSecuritiesSummary);
   }
 
   async getSecuritiesSummaryByIndex(
@@ -276,7 +286,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_SECURITIES_SUMMARY, { index, from: today, to: today, pageIndex: page, pageSize: size },
     );
-    return ((data as { data: unknown[] }).data ?? []).map(mapSecuritiesSummary);
+    return toDataArray(data).map(mapSecuritiesSummary);
   }
 
   async getSecuritiesSummaryByIndexHistorical(
@@ -288,7 +298,7 @@ export class MarketDataService {
     const data = await this.restClient.get<{ data: unknown[] }>(
       EP_DATA_SECURITIES_SUMMARY, { index, from, to, pageIndex: page, pageSize: size },
     );
-    return ((data as { data: unknown[] }).data ?? []).map(mapSecuritiesSummary);
+    return toDataArray(data).map(mapSecuritiesSummary);
   }
 
   async getMasterData(): Promise<MasterData[]> {
@@ -408,11 +418,13 @@ function mapSecuritiesInfo(raw: unknown): SecuritiesInfo {
     cwUnderlyingSymbol: (r['cwUnderlyingSymbol'] as string) ?? null,
     cwExercisePrice: r['cwExercisePrice'] != null ? toFloat(r['cwExercisePrice']) : null,
     cwExecutionRatio: r['cwExecutionRatio'] != null ? toFloat(r['cwExecutionRatio']) : null,
-    listedShares: toFloat(r['listedShares']),
+    listedShares: toFloat(r['listedShare']),
     icbCode: (r['icbCode'] as string) ?? null,
     icbName: (r['icbName'] as string) ?? null,
     iIndex: r['iIndex'] != null ? toFloat(r['iIndex']) : null,
     iNav: r['iNav'] != null ? toFloat(r['iNav']) : null,
+    openInterest: r['openInterest'] != null ? toFloat(r['openInterest']) : null,
+    settlementPrice: r['settlementPrice'] != null ? toFloat(r['settlementPrice']) : null,
   };
 }
 
@@ -434,6 +446,16 @@ function mapSecuritiesSummary(raw: unknown): SecuritiesSummary {
     totalTradeBuy: toFloat(r['totalTradeBuy']),
     totalSell: toFloat(r['totalSell']),
     totalTradeSell: toFloat(r['totalTradeSell']),
+    totalForeignBuy: toFloat(r['totalForeignBuy']),
+    totalForeignBuyValue: toFloat(r['totalForeignBuyValue']),
+    totalForeignSell: toFloat(r['totalForeignSell']),
+    totalForeignSellValue: toFloat(r['totalForeignSellValue']),
+    remainForeignRoom: toFloat(r['remainForeignRoom']),
+    totalForeignRoom: toFloat(r['totalForeignRoom']),
+    totalDeal: toFloat(r['totalDeal']),
+    totalDealValue: toFloat(r['totalDealValue']),
+    openInterest: toFloat(r['openInterest']),
+    settlementPrice: toFloat(r['settlementPrice']),
   };
 }
 

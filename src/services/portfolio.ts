@@ -143,6 +143,7 @@ function mapEquityBalance(raw: unknown): EquityAccountBalance {
     advanceCashT0: toFloat(r['advanceCashT0']),
     advanceCashT1: toFloat(r['advanceCashT1']),
     holdSubscription: toFloat(r['holdSubscription']),
+    dividend: toFloat(r['dividend']),
   };
 }
 
@@ -211,8 +212,10 @@ function mapDerivativePosition(raw: unknown): DerivativePosition {
 
 function mapAllDerivativePosition(raw: unknown): AllDerivativePosition {
   const r = raw as Record<string, unknown>;
-  const open = ((r['derOpenPositions'] as unknown[]) ?? []).map(mapDerivativePosition);
-  const closed = ((r['derClosePositions'] as unknown[]) ?? []).map(mapDerivativePosition);
+  const openRaw = r['derOpenPositions'];
+  const closedRaw = r['derClosePositions'];
+  const open = (Array.isArray(openRaw) ? openRaw : []).map(mapDerivativePosition);
+  const closed = (Array.isArray(closedRaw) ? closedRaw : []).map(mapDerivativePosition);
   return { openPositions: open, closedPositions: closed };
 }
 

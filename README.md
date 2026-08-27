@@ -458,7 +458,7 @@ Truy cập qua `trading.portfolio` (client `Trading`).
 ```typescript
 // Số dư tài khoản cơ sở
 const equityBalance = await trading.portfolio.getEquityBalance("1234561");
-console.log(`Available cash: ${equityBalance.availableCash}`);
+console.log(`Available cash: ${equityBalance.accountBalance}`);
 
 // Số dư tài khoản phái sinh
 const derivativeBalance = await trading.portfolio.getDerivativeBalance("1234568");
@@ -1024,6 +1024,8 @@ Các kiểu dữ liệu (Interfaces/Types) có thể import từ `@ssi.developer
 | `icbName` | `string` | Tên ngành ICB |
 | `iIndex` | `number` | Chỉ số I |
 | `iNav` | `number` | NAV (ETF) |
+| `openInterest` | `number` | Khối lượng mở (phái sinh) |
+| `settlementPrice` | `number` | Giá thanh toán (phái sinh) |
 
 **`SecuritiesSummary`** — Tổng hợp chứng khoán
 
@@ -1044,6 +1046,16 @@ Các kiểu dữ liệu (Interfaces/Types) có thể import từ `@ssi.developer
 | `totalTradeBuy` | `number` | Giá trị mua |
 | `totalSell` | `number` | Tổng KL bán |
 | `totalTradeSell` | `number` | Giá trị bán |
+| `totalForeignBuy` | `number` | KL mua khối ngoại |
+| `totalForeignBuyValue` | `number` | GT mua khối ngoại |
+| `totalForeignSell` | `number` | KL bán khối ngoại |
+| `totalForeignSellValue` | `number` | GT bán khối ngoại |
+| `remainForeignRoom` | `number` | Room ngoại còn lại |
+| `totalForeignRoom` | `number` | Tổng room ngoại |
+| `totalDeal` | `number` | KL giao dịch thỏa thuận |
+| `totalDealValue` | `number` | GT giao dịch thỏa thuận |
+| `openInterest` | `number` | Khối lượng mở (phái sinh) |
+| `settlementPrice` | `number` | Giá thanh toán (phái sinh) |
 
 #### Portfolio
 
@@ -1052,11 +1064,11 @@ Các kiểu dữ liệu (Interfaces/Types) có thể import từ `@ssi.developer
 | Trường | Kiểu | Mô tả |
 |--------|------|-------|
 | `accountNo` | `string` | Số tài khoản |
-| `availableCash` | `number` | Tiền mặt khả dụng |
+| `accountBalance` | `number` | Số dư tài khoản |
 | `totalDebt` | `number` | Tổng nợ |
 | `interestLoan` | `number` | Lãi vay |
 | `overdueFeeLoan` | `number` | Phí vay quá hạn |
-| `withdrawal` | `number` | Số tiền rút được |
+| `withdrawable` | `number` | Tiền rút được |
 | `onHoldCash` | `number` | Tiền tạm giữ |
 | `sellUnmatched` | `number` | Bán chưa khớp |
 | `sellT0` / `sellT1` / `sellT2` | `number` | Tiền bán chờ về T+0/T+1/T+2 |
@@ -1064,12 +1076,7 @@ Các kiểu dữ liệu (Interfaces/Types) có thể import từ `@ssi.developer
 | `buyT0` / `buyT1` / `buyT2` | `number` | Tiền mua chờ khớp T+0/T+1/T+2 |
 | `advanceCashT0` / `advanceCashT1` | `number` | Ứng trước T+0/T+1 |
 | `holdSubscription` | `number` | Giữ đăng ký quyền mua |
-| `bankBalance` | `number` | Số dư ngân hàng |
-| `dividend` / `dividendMargin` | `number` | Cổ tức nhận được |
-| `blockCash` | `number` | Tiền phong toả |
-| `interestCash` | `number` | Lãi tiền gửi |
-| `limitT0` | `number` | Hạn mức T+0 |
-| `termDeposit` | `number` | Tiền gửi kỳ hạn |
+| `dividend` | `number` | Cổ tức chờ về/đã ghi nhận |
 
 **`DerivativeAccountBalance`** — Số dư tài khoản phái sinh
 

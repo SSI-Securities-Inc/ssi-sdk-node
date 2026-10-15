@@ -29,3 +29,8 @@ export enum FCOStatus {
   EXP = 'EXP',
   ERR = 'ERR',
 }
+
+/** What a parameter may be given: the enum member or its string value. */
+export type FCOStatusLike = FCOStatus | `${FCOStatus}`;
+export type FCOTypeLike = FCOType | `${FCOType}`;
+export type FCOOperatorLike = FCOOperator | `${FCOOperator}`;

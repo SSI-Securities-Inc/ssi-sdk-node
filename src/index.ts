@@ -6,7 +6,8 @@ export { Auth, Data, Trading, Stream } from './client.js';
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
-export { Config, ConfigOptions } from './config.js';
+export { Config } from './config.js';
+export type { ConfigOptions } from './config.js';
 
 // ---------------------------------------------------------------------------
 // Exceptions
@@ -17,8 +18,13 @@ export {
   AuthenticationError,
   RateLimitError,
   WebSocketError,
+  TradingWSError,
   ValidationError,
   ConfigurationError,
+  SmartOTPPendingError,
+  SmartOTPRejectedError,
+  ReauthenticationRequired,
+  DuplicateRequestError,
 } from './exceptions.js';
 
 // ---------------------------------------------------------------------------
@@ -28,6 +34,7 @@ export {
   AccountType,
   Board,
   Timeframe,
+  ALLOWED_TIMEFRAMES,
   OrderSide,
   OrderType,
   OrderStatus,
@@ -37,91 +44,17 @@ export {
   DataTopic,
   DataType,
   HTTPStatus,
+  ServerErrorCode,
   FCOType,
   FCOOperator,
   FCOStatus,
 } from './enums/index.js';
+export type { FCOStatusLike, FCOTypeLike, FCOOperatorLike } from './enums/index.js';
 
 // ---------------------------------------------------------------------------
-// Models / Types
+// Models / Types and their builders
 // ---------------------------------------------------------------------------
-export type {
-  Account,
-  Token,
-  TokenRequest,
-  OTPRequest,
-  RefreshTokenRequest,
-  OHLCRequest,
-  OHLCData,
-  MarketIndexes,
-  MarketIndexSummary,
-  SecuritiesInfo,
-  SecuritiesSummary,
-  PlaceOrderRequest,
-  PlaceOrderResponse,
-  ModifyOrderRequest,
-  ModifyOrderResponse,
-  CancelOrderRequest,
-  CancelOrderResponse,
-  MaxBuySellRequest,
-  MaxBuySellResponse,
-  EquityAccountBalance,
-  DerivativeAccountBalance,
-  AccountBalance,
-  EquityPosition,
-  DerivativePosition,
-  AllDerivativePosition,
-  Position,
-  EquityPPMMR,
-  DerivativePPMMR,
-  Order,
-  OrderBook,
-  RequestMessage,
-  HeartbeatMessage,
-  TradeMessage,
-  IntervalMessage,
-  QuoteMessage,
-  MarketStatusMessage,
-  ForeignRoomMessage,
-  PutMessage,
-  OddLotMessage,
-  OrderStatusMessage,
-  PortfolioMessage,
-  FCOOrderUpdateMessage,
-  DataMessage,
-  TradingMessage,
-  FCOParams,
-  FCOInfo,
-  FCOListRequest,
-  FCOListResponse,
-  FCOOrderBookRequest,
-  FCOOrder,
-  FCOOrderBookResponse,
-  GTDParams,
-  StopParams,
-  TrailingStopParams,
-  OCOParams,
-  BullBearParams,
-  FCOPlaceResponse,
-  FCOCancelRequest,
-  FCOCancelResponse,
-} from './models/index.js';
-
-export {
-  buildGtdPayload,
-  buildStopPayload,
-  buildTrailingStopPayload,
-  buildOcoPayload,
-  buildBullBearPayload,
-  mapFcoParams,
-  mapFcoInfo,
-  mapFcoListResponse,
-  mapFcoOrder,
-  mapFcoOrderBookResponse,
-  mapFcoPlaceResponse,
-  mapFcoCancelResponse,
-} from './models/index.js';
-
+export * from './models/index.js';
 
 // ---------------------------------------------------------------------------
 // Services (for direct use if needed)
@@ -133,19 +66,32 @@ export {
   TradingService,
   PortfolioService,
   StreamingService,
+  classifyDataMessage,
+  classifyTradingMessage,
+  parseDataMessage,
+  parseTradingMessage,
 } from './services/index.js';
 export type {
   DataCallback,
   TradingCallback,
   HeartbeatCallback,
   ResponseCallback,
+  ConnectionCallback,
+  DataKind,
+  TradingKind,
 } from './services/index.js';
 
 // ---------------------------------------------------------------------------
 // Transport (advanced use)
 // ---------------------------------------------------------------------------
 export { RestClient, WebSocketClient } from './transport/index.js';
-export type { MessageHandler } from './transport/index.js';
+export type {
+  MessageHandler,
+  TokenProvider,
+  WebSocketClientOptions,
+  ConnectionEvent,
+  ConnectionState,
+} from './transport/index.js';
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -162,10 +108,17 @@ export {
   fromBeginningOfDay,
   fromEndOfDay,
   generateRequestId,
+  buildTopic,
+  buildTopics,
+  TOPIC_TYPES,
+  STREAM_INTERVALS,
+  STREAM_INTERVAL_ALL,
+  redact,
+  mask,
 } from './utils/index.js';
+export type { StreamInterval } from './utils/index.js';
 
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
 export { VERSION } from './version.js';
-

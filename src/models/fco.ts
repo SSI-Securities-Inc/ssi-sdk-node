@@ -1,14 +1,152 @@
-import { FCOType, FCOOperator, FCOStatus } from '../enums/fco.js';
+import {
+  FCOOperator,
+  FCOOperatorLike,
+  FCOStatus,
+  FCOStatusLike,
+  FCOType,
+  FCOTypeLike,
+} from '../enums/fco.js';
 import { OrderSide, OrderStatus, OrderType } from '../enums/trading.js';
-import { toFloat, toInt } from '../utils/converter.js';
-import { VERSION } from '../version.js';
+import {
+  Dict,
+  formatPrice,
+  fromValue,
+  isNoContent,
+  pick,
+  toEnum,
+  toInt,
+  toNumber,
+  toJsonNumber,
+  toOptFloat,
+} from '../utils/converter.js';
+import type { NumberLike, PriceLike } from './trading.js';
 
-export const DEFAULT_DEVICE_ID = 'A1:B2:C3:D4:E5:F6';
-export const DEFAULT_USER_AGENT = `SSI Node SDK/${VERSION}`;
+/** The server's responses encode the trigger operator as a number; requests use the name. */
+const OPERATOR_BY_NUMBER: Record<number, FCOOperator> = {
+  0: FCOOperator.GREATER_OR_EQUAL,
+  1: FCOOperator.EQUAL,
+  2: FCOOperator.GREATER,
+  3: FCOOperator.LESSER,
+  4: FCOOperator.LESSER_OR_EQUAL,
+};
 
+function str(value: unknown, fallback = ''): string {
+  return value === null || value === undefined ? fallback : String(value);
+}
+
+function isRecord(value: unknown): value is Dict {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Parse an operator given as a name or as the server's number 0..4 (raw if unknown). */
+export function parseOperator(raw: unknown): FCOOperator | string | undefined {
+  if (raw === null || raw === undefined || raw === '') return undefined;
+  if (typeof raw !== 'boolean') {
+    const text = String(raw).trim();
+    if (/^\d+$/.test(text)) {
+      const mapped = OPERATOR_BY_NUMBER[Number(text)];
+      if (mapped !== undefined) return mapped;
+    }
+  }
+  return toEnum(FCOOperator, raw) as FCOOperator | string | undefined;
+}
+
+export interface FCOCommon {
+  fcoId: string;
+  accountNo: string;
+  symbol: string;
+  quantity: number;
+  matchedQuantity: number;
+  isPlaceOrder: boolean;
+  type?: FCOType | string;
+}
+
+/**
+ * Fields every FCO payload carries (REST list/order book and stream events alike).
+ *
+ * One parser, so the REST models and the stream message cannot drift apart. camelCase is read
+ * first; the spec's casing is a fallback (server DTOs are camelCase).
+ */
+export function parseFcoCommon(data: Dict): FCOCommon {
+  return {
+    fcoId: str(pick(data, ['fcoId', 'FcoId'], '')),
+    accountNo: str(pick(data, ['accountNo', 'AccountNo'], '')),
+    symbol: str(pick(data, ['symbol', 'Symbol'], '')),
+    quantity: toInt(pick(data, ['quantity', 'Quantity'])),
+    matchedQuantity: toInt(pick(data, ['matchedQuantity', 'matchedQuality'])),
+    isPlaceOrder: Boolean(pick(data, ['isPlaceOrder', 'IsPlaceOrder'], false)),
+    type: toEnum(FCOType, data.type) as FCOType | string | undefined,
+  };
+}
+
+const MARKET_WORDS: ReadonlySet<string> = new Set(['ATO', 'ATC', 'MTL', 'MP', 'MOK', 'MAK']);
+
+/** Price text and slip for an FCO price that may be a number or an order-type word. */
+export function priceAndSlip(price: unknown, slip: unknown): [string, number] {
+  if (typeof price === 'string') {
+    const word = price.trim().toUpperCase();
+    // A market word (ATO/ATC/MTL/MP/MOK/MAK, any case) has no slip; LO/PLO and numbers keep it.
+    if (MARKET_WORDS.has(word)) return [price, 0];
+    if (fromValue(OrderType, word) !== undefined) return [price, toJsonNumber(slip, 'priceSlip')];
+    return [formatPrice(price), toJsonNumber(slip, 'priceSlip')];
+  }
+  if (typeof price === 'number' || typeof price === 'bigint') {
+    return [formatPrice(price), toJsonNumber(slip, 'priceSlip')];
+  }
+  return [price === null || price === undefined ? '' : String(price), 0];
+}
+
+/** Price text for a take-profit/stop-loss leg (number formatted plainly, or the word). */
+export function legPriceText(price: unknown): string {
+  return priceAndSlip(price, 0)[0];
+}
+
+// ---------------------------------------------------------------------------
+// List / order book
+// ---------------------------------------------------------------------------
+export interface FCOListRequest {
+  accountNo: string;
+  fcoId?: string;
+  type?: FCOTypeLike | string;
+  /** One status or several (sent as a repeated `processStatus` query key). */
+  processStatus?: FCOStatusLike | string | Array<FCOStatusLike | string>;
+  symbol?: string;
+  side?: OrderSide | string;
+  fromDate?: string;
+  toDate?: string;
+  pageIndex?: number;
+  pageSize?: number;
+  extraParams?: Dict;
+}
+
+function enumText(enumObj: Record<string, string | number>, value: unknown): unknown {
+  const found = fromValue(enumObj, value);
+  return found === undefined ? value : found;
+}
+
+export function fcoListRequestToParams(req: FCOListRequest): Dict {
+  const params: Dict = { accountNo: req.accountNo };
+  if (req.fcoId !== undefined) params.fcoId = req.fcoId;
+  if (req.type !== undefined) params.type = enumText(FCOType, req.type);
+  if (req.processStatus !== undefined) {
+    params.processStatus = Array.isArray(req.processStatus)
+      ? req.processStatus.map((item) => enumText(FCOStatus, item))
+      : enumText(FCOStatus, req.processStatus);
+  }
+  if (req.symbol !== undefined) params.symbol = req.symbol;
+  if (req.side !== undefined) params.side = enumText(OrderSide, req.side);
+  if (req.fromDate !== undefined) params.from = req.fromDate;
+  if (req.toDate !== undefined) params.to = req.toDate;
+  if (req.pageIndex !== undefined) params.pageIndex = req.pageIndex;
+  if (req.pageSize !== undefined) params.pageSize = req.pageSize;
+  if (req.extraParams) Object.assign(params, req.extraParams);
+  return params;
+}
+
+/** Detailed trigger parameters of an FCO order. */
 export interface FCOParams {
   stopPrice?: number;
-  side?: OrderSide;
+  side?: OrderSide | string;
   activePrice?: number;
   trailingAmount?: number;
   tpActivePrice?: number;
@@ -17,46 +155,116 @@ export interface FCOParams {
   slPrice?: string;
   tpSlip?: number;
   slSlip?: number;
-  operator?: FCOOperator;
+  operator?: FCOOperator | string;
 }
 
+function optNumber(value: unknown): number | undefined {
+  return value === null || value === undefined ? undefined : toNumber(value);
+}
+
+export function fcoParamsFromDict(data: Dict | null | undefined): FCOParams | undefined {
+  if (!data || !isRecord(data) || Object.keys(data).length === 0) return undefined;
+  return {
+    stopPrice: optNumber(data.stopPrice),
+    side:
+      data.side === null || data.side === undefined
+        ? undefined
+        : ((fromValue(OrderSide, data.side) ?? String(data.side)) as OrderSide | string),
+    activePrice: optNumber(data.activePrice),
+    trailingAmount: optNumber(data.trailingAmount),
+    tpActivePrice: optNumber(data.tpActivePrice),
+    slActivePrice: optNumber(data.slActivePrice),
+    tpPrice: data.tpPrice === null || data.tpPrice === undefined ? undefined : String(data.tpPrice),
+    slPrice: data.slPrice === null || data.slPrice === undefined ? undefined : String(data.slPrice),
+    tpSlip: optNumber(data.tpSlip),
+    slSlip: optNumber(data.slSlip),
+    operator: parseOperator(pick(data, ['operator', 'price_operator'])),
+  };
+}
+
+/** Only the set (non-undefined, non-empty) values. A legitimate 0 is kept. */
+export function fcoParamsToDict(params: FCOParams): Dict {
+  const out: Dict = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') out[key] = value;
+  }
+  return out;
+}
+
+/** A conditional order item in the FCO list. */
 export interface FCOInfo {
   fcoId: string;
   clientId: string;
   accountNo: string;
   quantity: number;
+  /** Price text, or a word such as "MP" for market-priced orders. */
   price: string;
-  priceSlip: string;
+  priceSlip?: number;
   symbol: string;
-  type?: FCOType;
+  type?: FCOType | string;
   fromDate: string;
   toDate: string;
   matchedQuantity: number;
+  /** Whether the conditional order has already placed its order. */
   isPlaceOrder: boolean;
-  status?: FCOStatus;
+  status?: FCOStatus | string;
   detail: string;
   params?: FCOParams;
+  orderType?: OrderType | string;
 }
 
-export interface FCOListRequest {
-  accountNo: string;
-  fcoId?: string;
-  type?: FCOType;
-  processStatus?: FCOStatus;
-  symbol?: string;
-  side?: OrderSide;
-  fromDate?: string;
-  toDate?: string;
-  pageIndex?: number;
-  pageSize?: number;
+export function fcoInfoFromDict(data: Dict): FCOInfo {
+  const paramsRaw = pick<unknown>(data, ['params', 'fco_params', 'fcoParams']);
+  const common = parseFcoCommon(data);
+  return {
+    fcoId: common.fcoId,
+    clientId: str(pick(data, ['username', 'Username'], '')),
+    accountNo: common.accountNo,
+    quantity: common.quantity,
+    price: str(data.price),
+    priceSlip: toOptFloat(data.priceSlip),
+    symbol: common.symbol,
+    type: common.type,
+    fromDate: str(data.from),
+    toDate: str(data.to),
+    matchedQuantity: common.matchedQuantity,
+    isPlaceOrder: common.isPlaceOrder,
+    status: toEnum(FCOStatus, data.status) as FCOStatus | string | undefined,
+    detail: str(data.detail),
+    params: isRecord(paramsRaw) ? fcoParamsFromDict(paramsRaw) : undefined,
+    orderType: toEnum(OrderType, data.orderType) as OrderType | string | undefined,
+  };
 }
 
 export interface FCOListResponse {
   pageIndex: number;
   pageSize: number;
   itemsCount: number;
+  /** Total pages as the server computes it (can miss the last partial page). */
   pagesCount: number;
   fcoList: FCOInfo[];
+}
+
+function asRows(value: unknown): Dict[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+export function fcoListResponseFromDict(data: unknown): FCOListResponse {
+  let rows: unknown;
+  let meta: Dict = {};
+  if (Array.isArray(data)) {
+    rows = data;
+  } else {
+    meta = isNoContent(data) || !isRecord(data) ? {} : data;
+    rows = pick(meta, ['data', 'fcoList', 'fco_list']) ?? [];
+  }
+  return {
+    pageIndex: toInt(meta.pageIndex, 1),
+    pageSize: toInt(meta.pageSize, 10),
+    itemsCount: toInt(meta.itemsCount, 0),
+    pagesCount: toInt(pick(meta, ['pagesCount', 'pageCount']), 0),
+    fcoList: asRows(rows).map(fcoInfoFromDict),
+  };
 }
 
 export interface FCOOrderBookRequest {
@@ -65,14 +273,22 @@ export interface FCOOrderBookRequest {
   pageSize?: number;
 }
 
+export function fcoOrderBookRequestToParams(req: FCOOrderBookRequest): Dict {
+  const params: Dict = { fcoId: req.fcoId };
+  if (req.pageIndex !== undefined) params.pageIndex = req.pageIndex;
+  if (req.pageSize !== undefined) params.pageSize = req.pageSize;
+  return params;
+}
+
+/** An entry in the FCO order book / execution log. */
 export interface FCOOrder {
   fcoId: string;
   accountNo: string;
   quantity: number;
   price: string;
   symbol: string;
-  side?: OrderSide;
-  orderType?: OrderType;
+  side?: OrderSide | string;
+  orderType?: OrderType | string;
   isMainOrder: boolean;
   isAttachedOrder: boolean;
   createdTime: string;
@@ -82,321 +298,208 @@ export interface FCOOrder {
   matchedQuantity: number;
   osQuantity: number;
   avgPrice: number;
-  status?: OrderStatus;
+  status?: OrderStatus | string;
   detail: string;
+  type?: FCOType | string;
+}
+
+export function fcoOrderFromDict(data: Dict): FCOOrder {
+  const common = parseFcoCommon(data);
+  return {
+    fcoId: common.fcoId,
+    accountNo: common.accountNo,
+    quantity: common.quantity,
+    price: str(data.price),
+    symbol: common.symbol,
+    side: toEnum(OrderSide, data.side) as OrderSide | string | undefined,
+    orderType: toEnum(OrderType, data.orderType) as OrderType | string | undefined,
+    isMainOrder: Boolean(pick(data, ['isMainOrder', 'IsMainOrder'], false)),
+    isAttachedOrder: Boolean(data.isAttachedOrder ?? false),
+    createdTime: str(data.createdTime),
+    updatedTime: str(data.updatedTime),
+    uniqueId: str(pick(data, ['uniqueId', 'uniquedId', 'UniqueId'], '')),
+    orderId: str(data.orderId),
+    matchedQuantity: common.matchedQuantity,
+    osQuantity: toInt(data.osQuantity),
+    avgPrice: toNumber(data.avgPrice, 0),
+    status: toEnum(OrderStatus, data.status) as OrderStatus | string | undefined,
+    detail: str(data.detail),
+    type: common.type,
+  };
 }
 
 export interface FCOOrderBookResponse {
   pageIndex: number;
   pageSize: number;
   itemsCount: number;
+  /** The last partial page can be missing: page until a page comes back empty. */
   pagesCount: number;
   orderBook: FCOOrder[];
 }
 
-export interface GTDParams {
+export function fcoOrderBookResponseFromDict(data: unknown): FCOOrderBookResponse {
+  let rows: unknown;
+  let meta: Dict = {};
+  if (Array.isArray(data)) {
+    rows = data;
+  } else {
+    meta = isNoContent(data) || !isRecord(data) ? {} : data;
+    rows = pick(meta, ['data', 'orderBook', 'order_book']) ?? [];
+  }
+  return {
+    pageIndex: toInt(meta.pageIndex, 1),
+    pageSize: toInt(meta.pageSize, 10),
+    itemsCount: toInt(meta.itemsCount, 0),
+    pagesCount: toInt(pick(meta, ['pagesCount', 'pageCount']), 0),
+    orderBook: asRows(rows).map(fcoOrderFromDict),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Place payloads. Numeric trigger fields go out as JSON numbers; prices as plain strings.
+// ---------------------------------------------------------------------------
+interface FCOCommonParams {
   accountNo: string;
+  fromDate?: string;
+  toDate?: string;
+  deviceId?: string;
+  userAgent?: string;
+  /** One-time code (OTP) when the account requires it for the command; omitted if empty. */
+  code?: string;
+}
+
+export interface GTDParams extends FCOCommonParams {
   symbol?: string;
   side?: OrderSide;
-  price?: number | string | OrderType;
-  priceSlip?: number;
+  price?: PriceLike | OrderType;
+  priceSlip?: NumberLike;
   quantity?: number;
-  fromDate?: string;
-  toDate?: string;
-  deviceId?: string;
-  userAgent?: string;
 }
 
-export interface StopParams {
-  accountNo: string;
+export interface StopParams extends FCOCommonParams {
   symbol: string;
   side: OrderSide;
-  stopPrice: number;
-  operator: FCOOperator;
+  stopPrice: NumberLike;
+  operator: FCOOperatorLike;
   quantity: number;
-  fromDate?: string;
-  toDate?: string;
-  price?: number | string | OrderType;
-  priceSlip?: number;
+  price?: PriceLike | OrderType;
+  priceSlip?: NumberLike;
   fcoType?: FCOType;
-  deviceId?: string;
-  userAgent?: string;
 }
 
-export interface TrailingStopParams {
-  accountNo: string;
+export interface TrailingStopParams extends FCOCommonParams {
   symbol: string;
   side: OrderSide;
   quantity: number;
-  activePrice: number;
-  trailingAmount: number;
-  priceSlip?: number;
-  fromDate?: string;
-  toDate?: string;
+  activePrice: NumberLike;
+  trailingAmount: NumberLike;
+  priceSlip?: NumberLike;
   fcoType?: FCOType;
-  deviceId?: string;
-  userAgent?: string;
 }
 
-export interface OCOParams {
-  accountNo: string;
+export interface OCOParams extends FCOCommonParams {
   symbol: string;
   quantity: number;
   side: OrderSide;
-  tpActivePrice: number;
-  slActivePrice: number;
-  tpPrice: number | string | OrderType;
-  slPrice: number | string | OrderType;
-  tpSlip: number;
-  slSlip: number;
-  fromDate?: string;
-  toDate?: string;
+  tpActivePrice: NumberLike;
+  slActivePrice: NumberLike;
+  tpPrice: PriceLike | OrderType;
+  slPrice: PriceLike | OrderType;
+  tpSlip: NumberLike;
+  slSlip: NumberLike;
   fcoType?: FCOType;
-  deviceId?: string;
-  userAgent?: string;
 }
 
-export interface BullBearParams {
-  accountNo: string;
+export interface BullBearParams extends FCOCommonParams {
   symbol: string;
   quantity: number;
   side: OrderSide;
-  price: number | string | OrderType;
-  priceSlip: number;
-  tpActivePrice: number;
-  slActivePrice: number;
-  tpPrice: number | string | OrderType;
-  slPrice: number | string | OrderType;
-  tpSlip: number;
-  slSlip: number;
-  fromDate?: string;
-  toDate?: string;
+  price: PriceLike | OrderType;
+  priceSlip: NumberLike;
+  tpActivePrice: NumberLike;
+  slActivePrice: NumberLike;
+  tpPrice: PriceLike | OrderType;
+  slPrice: PriceLike | OrderType;
+  tpSlip: NumberLike;
+  slSlip: NumberLike;
   fcoType?: FCOType;
-  deviceId?: string;
-  userAgent?: string;
 }
 
-export interface FCOPlaceResponse {
-  fcoId: string;
-}
-
-export interface FCOCancelRequest {
-  fcoId: string;
-}
-
-export interface FCOCancelResponse {
-  fcoId: string;
-}
-
-// ---------------------------------------------------------------------------
-// Serialization Mappers
-// ---------------------------------------------------------------------------
-
-export function mapFcoParams(raw: unknown): FCOParams | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const r = raw as Record<string, unknown>;
-  return {
-    stopPrice: r['stopPrice'] !== undefined ? toFloat(r['stopPrice']) : undefined,
-    side: r['side'] as OrderSide | undefined,
-    activePrice: r['activePrice'] !== undefined ? toFloat(r['activePrice']) : undefined,
-    trailingAmount: r['trailingAmount'] !== undefined ? toFloat(r['trailingAmount']) : undefined,
-    tpActivePrice: r['tpActivePrice'] !== undefined ? toFloat(r['tpActivePrice']) : undefined,
-    slActivePrice: r['slActivePrice'] !== undefined ? toFloat(r['slActivePrice']) : undefined,
-    tpPrice: r['tpPrice'] !== undefined ? String(r['tpPrice']) : undefined,
-    slPrice: r['slPrice'] !== undefined ? String(r['slPrice']) : undefined,
-    tpSlip: r['tpSlip'] !== undefined ? toFloat(r['tpSlip']) : undefined,
-    slSlip: r['slSlip'] !== undefined ? toFloat(r['slSlip']) : undefined,
-    operator: r['operator'] as FCOOperator | undefined,
-  };
-}
-
-export function mapFcoInfo(raw: unknown): FCOInfo {
-  const r = raw as Record<string, unknown>;
-  const paramsRaw = r['params'] ?? r['fcoParams'] ?? r['fco_params'];
-  return {
-    fcoId: String(r['fcoId'] ?? ''),
-    clientId: String(r['username'] ?? ''),
-    accountNo: String(r['accountNo'] ?? ''),
-    quantity: toInt(r['quantity']),
-    price: String(r['price'] ?? ''),
-    priceSlip: String(r['priceSlip'] ?? ''),
-    symbol: String(r['symbol'] ?? ''),
-    type: r['type'] as FCOType | undefined,
-    fromDate: String(r['from'] ?? ''),
-    toDate: String(r['to'] ?? ''),
-    matchedQuantity: toInt(r['matchedQuantity']),
-    isPlaceOrder: Boolean(r['isPlaceOrder'] ?? false),
-    status: r['status'] as FCOStatus | undefined,
-    detail: String(r['detail'] ?? ''),
-    params: mapFcoParams(paramsRaw),
-  };
-}
-
-export function mapFcoListResponse(raw: unknown): FCOListResponse {
-  if (Array.isArray(raw)) {
-    return {
-      pageIndex: 1,
-      pageSize: 10,
-      itemsCount: raw.length,
-      pagesCount: 1,
-      fcoList: raw.map(mapFcoInfo),
-    };
-  }
-  const r = (raw as Record<string, unknown>) ?? {};
-  const listRaw = (r['data'] ?? r['fcoList'] ?? r['fco_list'] ?? []) as unknown[];
-  return {
-    pageIndex: toInt(r['pageIndex'] ?? 1),
-    pageSize: toInt(r['pageSize'] ?? 10),
-    itemsCount: toInt(r['itemsCount'] ?? 0),
-    pagesCount: toInt(r['pagesCount'] ?? 0),
-    fcoList: Array.isArray(listRaw) ? listRaw.map(mapFcoInfo) : [],
-  };
-}
-
-export function mapFcoOrder(raw: unknown): FCOOrder {
-  const r = raw as Record<string, unknown>;
-  return {
-    fcoId: String(r['fcoId'] ?? ''),
-    accountNo: String(r['accountNo'] ?? ''),
-    quantity: toFloat(r['quantity']),
-    price: String(r['price'] ?? ''),
-    symbol: String(r['symbol'] ?? ''),
-    side: r['side'] as OrderSide | undefined,
-    orderType: r['orderType'] as OrderType | undefined,
-    isMainOrder: Boolean(r['isMainOrder'] ?? false),
-    isAttachedOrder: Boolean(r['isAttachedOrder'] ?? false),
-    createdTime: String(r['createdTime'] ?? ''),
-    updatedTime: String(r['updatedTime'] ?? ''),
-    uniqueId: String(r['uniqueId'] ?? ''),
-    orderId: String(r['orderId'] ?? ''),
-    matchedQuantity: toFloat(r['matchedQuantity']),
-    osQuantity: toFloat(r['osQuantity']),
-    avgPrice: toFloat(r['avgPrice']),
-    status: r['status'] as OrderStatus | undefined,
-    detail: String(r['detail'] ?? ''),
-  };
-}
-
-export function mapFcoOrderBookResponse(raw: unknown): FCOOrderBookResponse {
-  if (Array.isArray(raw)) {
-    return {
-      pageIndex: 1,
-      pageSize: 10,
-      itemsCount: raw.length,
-      pagesCount: 1,
-      orderBook: raw.map(mapFcoOrder),
-    };
-  }
-  const r = (raw as Record<string, unknown>) ?? {};
-  const listRaw = (r['data'] ?? r['orderBook'] ?? r['order_book'] ?? []) as unknown[];
-  return {
-    pageIndex: toInt(r['pageIndex'] ?? 1),
-    pageSize: toInt(r['pageSize'] ?? 10),
-    itemsCount: toInt(r['itemsCount'] ?? 0),
-    pagesCount: toInt(r['pagesCount'] ?? 0),
-    orderBook: Array.isArray(listRaw) ? listRaw.map(mapFcoOrder) : [],
-  };
-}
-
-export function mapFcoPlaceResponse(raw: unknown): FCOPlaceResponse {
-  const r = (raw as Record<string, unknown>) ?? {};
-  const data = (r['data'] as Record<string, unknown>) ?? r;
-  return {
-    fcoId: String(data['fcoId'] ?? ''),
-  };
-}
-
-export function mapFcoCancelResponse(raw: unknown): FCOCancelResponse {
-  const r = (raw as Record<string, unknown>) ?? {};
-  const data = (r['data'] as Record<string, unknown>) ?? r;
-  return {
-    fcoId: String(data['fcoId'] ?? ''),
-  };
-}
-
-export function buildGtdPayload(p: GTDParams): Record<string, unknown> {
-  let priceStr = '';
-  let priceSlip = p.priceSlip ?? 0;
-  if (typeof p.price === 'number') {
-    priceStr = String(p.price);
-  } else if (typeof p.price === 'string') {
-    priceStr = p.price;
-  } else if (p.price && typeof p.price === 'object' && 'value' in p.price) {
-    priceStr = String((p.price as any).value);
-    priceSlip = 0;
-  } else if (p.price !== undefined) {
-    priceStr = String(p.price);
-  }
-  return {
+export function gtdToPayload(p: GTDParams): Dict {
+  const [price, priceSlip] = priceAndSlip(p.price, p.priceSlip ?? 0);
+  const payload: Dict = {
     accountNo: p.accountNo,
     type: FCOType.GTD,
     symbol: p.symbol,
     side: p.side,
-    price: priceStr,
+    price,
     priceSlip,
     quantity: p.quantity,
     from: p.fromDate,
     to: p.toDate,
-    deviceId: p.deviceId ?? DEFAULT_DEVICE_ID,
-    userAgent: p.userAgent ?? DEFAULT_USER_AGENT,
+    deviceId: p.deviceId ?? '',
+    userAgent: p.userAgent ?? '',
   };
-}
-
-export function buildStopPayload(p: StopParams): Record<string, unknown> {
-  const fcoType = p.fcoType ?? FCOType.STOP;
-  let priceStr = '';
-  let priceSlip = p.priceSlip ?? 0;
-  if (fcoType === FCOType.STOP) {
-    priceStr = OrderType.MTL;
-    priceSlip = 0;
-  } else {
-    priceStr = String(p.price ?? 0);
-  }
-  return {
-    accountNo: p.accountNo,
-    type: fcoType,
-    symbol: p.symbol,
-    side: p.side,
-    price: priceStr,
-    priceSlip,
-    quantity: p.quantity,
-    from: p.fromDate,
-    to: p.toDate,
-    stopPrice: p.stopPrice,
-    operator: p.operator,
-    deviceId: p.deviceId ?? DEFAULT_DEVICE_ID,
-    userAgent: p.userAgent ?? DEFAULT_USER_AGENT,
-  };
-}
-
-export function buildTrailingStopPayload(p: TrailingStopParams): Record<string, unknown> {
-  const fcoType = p.fcoType ?? FCOType.TRAILING_STOP;
-  const payload: Record<string, unknown> = {
-    accountNo: p.accountNo,
-    type: fcoType,
-    symbol: p.symbol,
-    side: p.side,
-    quantity: p.quantity,
-    from: p.fromDate,
-    to: p.toDate,
-    activePrice: p.activePrice,
-    trailingAmount: p.trailingAmount,
-    deviceId: p.deviceId ?? DEFAULT_DEVICE_ID,
-    userAgent: p.userAgent ?? DEFAULT_USER_AGENT,
-  };
-  if (fcoType === FCOType.TRAILING_STOP) {
-    payload['price'] = OrderType.MTL;
-    payload['priceSlip'] = 0;
-  } else {
-    payload['priceSlip'] = p.priceSlip ?? 0;
-  }
+  if (p.code) payload.code = p.code;
   return payload;
 }
 
-export function buildOcoPayload(p: OCOParams): Record<string, unknown> {
-  const tpPriceStr = typeof p.tpPrice === 'number' ? String(p.tpPrice) : String(p.tpPrice);
-  const slPriceStr = typeof p.slPrice === 'number' ? String(p.slPrice) : String(p.slPrice);
+export function stopToPayload(p: StopParams): Dict {
+  const fcoType = p.fcoType ?? FCOType.STOP;
+  let price: string;
+  let priceSlip: number;
+  if (fcoType === FCOType.STOP) {
+    price = OrderType.MTL;
+    priceSlip = 0;
+  } else {
+    price = legPriceText(p.price ?? 0);
+    priceSlip = toJsonNumber(p.priceSlip ?? 0, 'priceSlip');
+  }
+  const payload: Dict = {
+    accountNo: p.accountNo,
+    type: fcoType,
+    symbol: p.symbol,
+    side: p.side,
+    price,
+    priceSlip,
+    quantity: p.quantity,
+    from: p.fromDate,
+    to: p.toDate,
+    stopPrice: toJsonNumber(p.stopPrice, 'stopPrice'),
+    operator: p.operator,
+    deviceId: p.deviceId ?? '',
+    userAgent: p.userAgent ?? '',
+  };
+  if (p.code) payload.code = p.code;
+  return payload;
+}
 
+export function trailingStopToPayload(p: TrailingStopParams): Dict {
+  const fcoType = p.fcoType ?? FCOType.TRAILING_STOP;
+  const payload: Dict = {
+    accountNo: p.accountNo,
+    type: fcoType,
+    symbol: p.symbol,
+    side: p.side,
+    quantity: p.quantity,
+    from: p.fromDate,
+    to: p.toDate,
+    activePrice: toJsonNumber(p.activePrice, 'activePrice'),
+    trailingAmount: toJsonNumber(p.trailingAmount, 'trailingAmount'),
+    userAgent: p.userAgent ?? '',
+    deviceId: p.deviceId ?? '',
+  };
+  if (fcoType === FCOType.TRAILING_STOP) {
+    payload.price = OrderType.MTL;
+    payload.priceSlip = 0;
+  } else {
+    payload.priceSlip = toJsonNumber(p.priceSlip ?? 0, 'priceSlip');
+  }
+  if (p.code) payload.code = p.code;
+  return payload;
+}
+
+export function ocoToPayload(p: OCOParams): Dict {
   return {
     accountNo: p.accountNo,
     type: p.fcoType ?? FCOType.OCO,
@@ -405,47 +508,148 @@ export function buildOcoPayload(p: OCOParams): Record<string, unknown> {
     quantity: p.quantity,
     from: p.fromDate,
     to: p.toDate,
-    tpActivePrice: p.tpActivePrice,
-    slActivePrice: p.slActivePrice,
-    tpPrice: tpPriceStr,
-    slPrice: slPriceStr,
-    tpSlip: p.tpSlip,
-    slSlip: p.slSlip,
-    deviceId: p.deviceId ?? DEFAULT_DEVICE_ID,
-    userAgent: p.userAgent ?? DEFAULT_USER_AGENT,
+    tpActivePrice: toJsonNumber(p.tpActivePrice, 'tpActivePrice'),
+    slActivePrice: toJsonNumber(p.slActivePrice, 'slActivePrice'),
+    tpPrice: legPriceText(p.tpPrice),
+    slPrice: legPriceText(p.slPrice),
+    tpSlip: toJsonNumber(p.tpSlip, 'tpSlip'),
+    slSlip: toJsonNumber(p.slSlip, 'slSlip'),
+    userAgent: p.userAgent ?? '',
+    deviceId: p.deviceId ?? '',
+    // Fixed fields the server expects on an OCO order.
     price: 'MP',
     priceSlip: 0,
     stopPrice: 0,
     activePrice: 0,
     trailingAmount: 0,
     operator: '',
-    code: '',
+    code: p.code ?? '',
   };
 }
 
-export function buildBullBearPayload(p: BullBearParams): Record<string, unknown> {
-  const priceStr = typeof p.price === 'number' ? String(p.price) : String(p.price);
-  const tpPriceStr = typeof p.tpPrice === 'number' ? String(p.tpPrice) : String(p.tpPrice);
-  const slPriceStr = typeof p.slPrice === 'number' ? String(p.slPrice) : String(p.slPrice);
-
-  return {
+export function bullBearToPayload(p: BullBearParams): Dict {
+  const [price, priceSlip] = priceAndSlip(p.price, p.priceSlip);
+  const [tpPrice, tpSlip] = priceAndSlip(p.tpPrice, p.tpSlip);
+  const [slPrice, slSlip] = priceAndSlip(p.slPrice, p.slSlip);
+  const payload: Dict = {
     accountNo: p.accountNo,
     type: p.fcoType ?? FCOType.BULL_BEAR,
     symbol: p.symbol,
     side: p.side,
     quantity: p.quantity,
-    price: priceStr,
-    priceSlip: p.priceSlip,
+    price,
+    priceSlip,
     from: p.fromDate,
     to: p.toDate,
-    tpActivePrice: p.tpActivePrice,
-    slActivePrice: p.slActivePrice,
-    tpPrice: tpPriceStr,
-    slPrice: slPriceStr,
-    tpSlip: p.tpSlip,
-    slSlip: p.slSlip,
-    deviceId: p.deviceId ?? DEFAULT_DEVICE_ID,
-    userAgent: p.userAgent ?? DEFAULT_USER_AGENT,
+    tpActivePrice: toJsonNumber(p.tpActivePrice, 'tpActivePrice'),
+    slActivePrice: toJsonNumber(p.slActivePrice, 'slActivePrice'),
+    tpPrice,
+    slPrice,
+    tpSlip,
+    slSlip,
+    userAgent: p.userAgent ?? '',
+    deviceId: p.deviceId ?? '',
+  };
+  if (p.code) payload.code = p.code;
+  return payload;
+}
+
+export interface FCOPlaceResponse {
+  fcoId: string;
+}
+
+export function fcoPlaceResponseFromDict(data: Dict): FCOPlaceResponse {
+  return { fcoId: str(data.fcoId) };
+}
+
+/** `deviceId` is required by the server; the server records its own IP, so no ipAddress. */
+export interface FCOCancelRequest {
+  fcoId: string;
+  deviceId: string;
+  userAgent?: string;
+  code?: string;
+}
+
+export function fcoCancelToPayload(req: FCOCancelRequest): Dict {
+  const payload: Dict = { fcoId: req.fcoId, deviceId: req.deviceId };
+  if (req.userAgent) payload.userAgent = req.userAgent;
+  if (req.code) payload.code = req.code;
+  return payload;
+}
+
+export interface FCOCancelResponse {
+  fcoId: string;
+}
+
+export function fcoCancelResponseFromDict(data: Dict): FCOCancelResponse {
+  return { fcoId: str(data.fcoId) };
+}
+
+// ---------------------------------------------------------------------------
+// Status history
+// ---------------------------------------------------------------------------
+export interface FCOStatusHistoryRequest {
+  fcoId: string;
+}
+
+/** The server binds `fcoid` case-insensitively. */
+export function fcoStatusHistoryToParams(req: FCOStatusHistoryRequest): Dict {
+  return { fcoid: req.fcoId };
+}
+
+/** One status transition of an FCO. */
+export interface FCOStatusHistoryItem {
+  state: string;
+  time: string;
+  code?: string;
+  detail: string;
+}
+
+export function fcoStatusHistoryItemFromDict(data: Dict): FCOStatusHistoryItem {
+  const code = data.code;
+  return {
+    state: str(data.state),
+    time: str(data.time),
+    code: code === null || code === undefined || code === '' ? undefined : String(code),
+    detail: str(data.detail),
   };
 }
 
+/** Parse the `statusHistory` response: `{"data": [...]}`, a bare list, or the 204 marker. */
+export function fcoStatusHistoryFromResponse(data: unknown): FCOStatusHistoryItem[] {
+  let rows: unknown = data;
+  if (isRecord(data)) {
+    if (isNoContent(data)) return [];
+    rows = data.data ?? [];
+  }
+  return asRows(rows).map(fcoStatusHistoryItemFromDict);
+}
+
+// Names from 3.2.x, kept as thin aliases of the renamed helpers.
+
+/** @deprecated use `fcoParamsFromDict`. */
+export const mapFcoParams = (raw: unknown): FCOParams | undefined => fcoParamsFromDict(isRecord(raw) ? raw : null);
+/** @deprecated use `fcoInfoFromDict`. */
+export const mapFcoInfo = (raw: unknown): FCOInfo => fcoInfoFromDict(isRecord(raw) ? raw : {});
+/** @deprecated use `fcoListResponseFromDict`. */
+export const mapFcoListResponse = (raw: unknown): FCOListResponse => fcoListResponseFromDict(raw);
+/** @deprecated use `fcoOrderFromDict`. */
+export const mapFcoOrder = (raw: unknown): FCOOrder => fcoOrderFromDict(isRecord(raw) ? raw : {});
+/** @deprecated use `fcoOrderBookResponseFromDict`. */
+export const mapFcoOrderBookResponse = (raw: unknown): FCOOrderBookResponse => fcoOrderBookResponseFromDict(raw);
+/** @deprecated use `fcoPlaceResponseFromDict`. */
+export const mapFcoPlaceResponse = (raw: unknown): FCOPlaceResponse =>
+  fcoPlaceResponseFromDict(isRecord(raw) ? raw : {});
+/** @deprecated use `fcoCancelResponseFromDict`. */
+export const mapFcoCancelResponse = (raw: unknown): FCOCancelResponse =>
+  fcoCancelResponseFromDict(isRecord(raw) ? raw : {});
+/** @deprecated use `gtdToPayload`. */
+export const buildGtdPayload = gtdToPayload;
+/** @deprecated use `stopToPayload`. */
+export const buildStopPayload = stopToPayload;
+/** @deprecated use `trailingStopToPayload`. */
+export const buildTrailingStopPayload = trailingStopToPayload;
+/** @deprecated use `ocoToPayload`. */
+export const buildOcoPayload = ocoToPayload;
+/** @deprecated use `bullBearToPayload`. */
+export const buildBullBearPayload = bullBearToPayload;

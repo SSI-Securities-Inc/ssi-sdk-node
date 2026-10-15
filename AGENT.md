@@ -1,201 +1,160 @@
-# AGENT.md — AI Agent Integration Guide for @ssi.developer/ssi-sdk
+# AGENT.md - guide for developers and AI agents using @ssi.developer/ssi-sdk
 
-This guide provides AI coding assistants (Claude, Gemini, Cursor, Copilot, etc.) with instructions, code patterns, architectural conventions, and an API cheatsheet for integrating and interacting with the `@ssi.developer/ssi-sdk` Node.js / TypeScript package.
-
----
-
-## 1. Overview & Architecture
-
-`@ssi.developer/ssi-sdk` is a lightweight, high-performance Node.js/TypeScript SDK for SSI's **FastConnect v3 API**. It provides modern TypeScript support (ESM & CommonJS) for:
-- Authentication & Token Management (OTP, Refresh Token, Auto-refresh)
-- Market Data (OHLC 1min/1day, Indexes, Securities Information & Summary)
-- Trading & Portfolio (Order placement/modification/cancellation, FCO conditional orders, Account balances, Positions, PPMMR)
-- Realtime Streaming (WebSocket market data & trading events)
-
-### Layering & Structure
-```
-Facade Client (Auth / Data / Trading / Stream)
-   └── Services (MarketDataService, AccountService, PortfolioService, TradingService, StreamingService)
-        └── Transport (RestClient / StreamingClient)
-             └── Leaf Modules (models, enums, utils, constants, config)
-```
-
-### Key Architectural Constraints for AI Agents
-1. **Modular Facade Pattern**: Root clients are split into 4 specialized clients: `Auth`, `Data`, `Trading`, `Stream`. All non-Auth clients accept an `Auth` instance.
-2. **TypeScript Interfaces & Types**: Request/Response models are strictly typed using TypeScript interfaces in `src/models`.
-3. **Type Safety with Enums**: All protocol constants (`OrderSide`, `OrderType`, `OrderStatus`, `Board`, `AccountType`, `FCOType`, `FCOOperator`, `FCOStatus`, `Timeframe`) are defined as Enums in `src/enums`.
-4. **Header User-Agent Parity**: Requests to SSI API include a browser `User-Agent` header by default (`DEFAULT_USER_AGENT`) to ensure seamless firewall pass-through.
+Instructions, patterns and conventions for AI coding assistants (Claude, Gemini, Cursor, Copilot, ...) and humans integrating
+the `@ssi.developer/ssi-sdk` Node.js / TypeScript package (version 3.3.0). The full method list is in `API_METHODS.md`,
+changes are in `CHANGELOG.md`, usage in `README.md`.
 
 ---
 
-## 2. Authentication & Setup Pattern
+## 1. Overview and architecture
 
-### Configuration Initialization
+SDK for SSI's **FastConnect v3 API** (ESM and CommonJS, strict TypeScript): authentication (OTP, Smart OTP, refresh),
+market data, trading and portfolio (orders, FCO conditional orders, batch orders), and realtime streaming.
+
+```
+Facade (Auth / Data / Trading / Stream)
+   └── Services (TokenManager, MarketDataService, AccountService, PortfolioService, TradingService, StreamingService)
+        └── Transport (RestClient / WebSocketClient)
+             └── Leaves (models, enums, utils, constants, config)
+```
+
+Rules of the design:
+1. `Auth` owns the REST client and the token; `Data`, `Trading` and `Stream` take an `Auth` and share them.
+2. Everything that hits the network returns a `Promise`. There is no sync API.
+3. Every duration the SDK defines is **milliseconds** and its name ends in `Ms` (`timeoutMs`, `retryDelayMs`, `RateLimitError.retryAfterMs`, ...); `Token.expiresAt` is epoch **seconds**.
+4. Money and prices are `PriceLike` (`number | string`). Pass a plain decimal string (`"25000.50"`) to avoid float rounding;
+   `NaN`, `Infinity`, empty text, exponent (`"1e3"`) and separators (`"25,000"`) throw `ValidationError`. Order/FCO price text goes
+   out as written; trigger fields and slips go out as JSON numbers and a string a JS number cannot hold exactly is refused.
+   Responses return money as `number`. Never do float arithmetic on a price you send.
+5. Only `GET` is retried (timeouts). Orders, FCO, OTP and auth `POST`/`PUT`/`DELETE` are sent once: use `clientRequestId` as
+   an idempotency key and check the order book before resending after an error.
+6. The experimental trading WebSocket lives in a separate entry point: `@ssi.developer/ssi-sdk/experimental`.
+
+---
+
+## 2. Setup and authentication
+
 ```typescript
-import { Config } from '@ssi.developer/ssi-sdk';
+import { Auth, Data, Trading, Stream } from '@ssi.developer/ssi-sdk';
 
-const config = new Config({
-  clientId: "YOUR_CLIENT_ID",
-  apiKey: "YOUR_API_KEY",
-  apiSecret: "YOUR_API_SECRET",
-  privateKey: "YOUR_PRIVATE_KEY", // Base64 RSA Private Key
-  apiUrl: "https://api.ssi.com.vn",
+const auth = new Auth({
+  clientId: process.env.SSI_CLIENT_ID,
+  apiKey: process.env.SSI_API_KEY,
+  apiSecret: process.env.SSI_API_SECRET,
+  privateKey: process.env.SSI_PRIVATE_KEY, // base64 XML RSA key, only for signed orders
 });
-```
-
-### Authentication Flow
-```typescript
-import { Auth, Trading, Data, Stream } from '@ssi.developer/ssi-sdk';
-
-async function main() {
-  const auth = new Auth(config);
-
-  // Authenticate with OTP (Required for Trading & Streaming)
-  await auth.authenticate("123456");
-
-  // Create sub-clients sharing the auth context
-  const data = new Data(auth);
-  const trading = new Trading(auth);
-  const stream = new Stream(auth);
-}
-```
-
----
-
-## 3. Public API Cheatsheet for AI Agents
-
-### 3.1 Market Data (`data.marketData`)
-
-| Method | Parameters | Return Type | Description |
-|--------|------------|-------------|-------------|
-| `getOhlc1Minute` | `symbol, pageIndex?, pageSize?` | `Promise<OHLCData>` | Query 1-minute candle OHLCV data |
-| `getOhlc1Day` | `symbol, pageIndex?, pageSize?` | `Promise<OHLCData>` | Query 1-day candle OHLCV data |
-| `downloadOhlc1Minute` | `symbol` | `Promise<OHLCData>` | Download full 1-minute OHLC history |
-| `downloadOhlc1Day` | `symbol` | `Promise<OHLCData>` | Download full 1-day OHLC history |
-| `getMarketIndexes` | `indexId?` | `Promise<MarketIndexes>` | Get list of market indexes |
-| `getMarketIndexSummary` | `indexId?, fromDate?, toDate?, pageIndex?, pageSize?` | `Promise<MarketIndexSummary>` | Summary metrics for an index |
-| `getSecuritiesInfo` | `symbol?, market?, pageIndex?, pageSize?` | `Promise<SecuritiesInfo>` | Security details (listed shares, lot size, etc.) |
-| `getSecuritiesSummary` | `symbol?, market?, pageIndex?, pageSize?` | `Promise<SecuritiesSummary>` | Summary of stock transactions |
-| `getMasterData` | None | `Promise<MasterData[]>` | Query ceiling, floor, ref prices for today |
-| `getMasterDataHistorical` | `from, to` | `Promise<MasterData[]>` | Query ceiling, floor, ref prices for date range |
-
-### 3.2 Account & Portfolio (`trading.account` & `trading.portfolio`)
-
-| Service | Method | Return Type | Description |
-|---------|--------|-------------|-------------|
-| `account` | `getAccountInfo()` | `Promise<AccountInfo[]>` | Query list of sub-accounts |
-| `portfolio` | `getEquityBalance(accountNo)` | `Promise<EquityAccountBalance>` | Cash balance & debt for cash/margin account |
-| `portfolio` | `getDerivativeBalance(accountNo)` | `Promise<DerivativeAccountBalance>` | Balance & margin for derivative account |
-| `portfolio` | `getEquityPositions(accountNo)` | `Promise<EquityPosition[]>` | Equity stock holdings |
-| `portfolio` | `getDerivativePositions(accountNo)` | `Promise<AllDerivativePosition>` | Derivative contract positions (open & closed) |
-| `portfolio` | `getTodayOrders(accountNo)` | `Promise<Order[]>` | Intraday orders |
-| `portfolio` | `getHistoricalOrders(accountNo, fromDate, toDate)` | `Promise<Order[]>` | Historical order book entries |
-| `portfolio` | `getEquityPpmmr(accountNo)` | `Promise<EquityPPMMR>` | Purchasing power & margin ratio (Equity) |
-| `portfolio` | `getDerivativePpmmr(accountNo)` | `Promise<DerivativePPMMR>` | Purchasing power & margin ratio (Derivative) |
-
-### 3.3 Standard Trading (`trading.trading`)
-
-| Method | Parameters | Return Type | Description |
-|--------|------------|-------------|-------------|
-| `placeLimitOrder` | `accountNo, symbol, side, quantity, price` | `Promise<PlaceOrderResponse>` | Place LO order |
-| `placeMarketOrder` | `accountNo, symbol, side, quantity` | `Promise<PlaceOrderResponse>` | Place MTL market order |
-| `placeAtoOrder` | `accountNo, symbol, side, quantity` | `Promise<PlaceOrderResponse>` | Place ATO opening order |
-| `placeAtcOrder` | `accountNo, symbol, side, quantity` | `Promise<PlaceOrderResponse>` | Place ATC closing order |
-| `placeOrder` | `accountNo, symbol, side, quantity, price, orderType` | `Promise<PlaceOrderResponse>` | Place order with custom OrderType |
-| `modifyOrderPriceById` | `accountNo, orderId, price` | `Promise<ModifyOrderResponse>` | Modify order price by server order ID |
-| `modifyOrderQuantityById` | `accountNo, orderId, quantity` | `Promise<ModifyOrderResponse>` | Modify order quantity by server order ID |
-| `cancelOrderById` | `accountNo, orderId` | `Promise<CancelOrderResponse>` | Cancel order by server order ID |
-| `getMaxBuySell` | `accountNo, symbol, price` | `Promise<MaxBuySellResponse>` | Max buy/sell qty at given price |
-
-### 3.4 Flexible Conditional Orders - FCO (`trading.trading`)
-
-| Method | Key Parameters | Return Type | Description |
-|--------|----------------|-------------|-------------|
-| `placeFcoGtd` | `accountNo, symbol, side, quantity, price, priceSlip, fromDate, toDate` | `Promise<FCOPlaceResponse>` | Good Till Date order |
-| `placeFcoStop` | `accountNo, symbol, side, quantity, stopPrice, operator, fromDate, toDate` | `Promise<FCOPlaceResponse>` | Stop Market order |
-| `placeFcoStopLimit` | `accountNo, symbol, side, quantity, price, priceSlip, stopPrice, operator, fromDate, toDate` | `Promise<FCOPlaceResponse>` | Stop Limit order |
-| `placeFcoTrailingStop` | `accountNo, symbol, side, quantity, activePrice, trailingAmount, fromDate, toDate` | `Promise<FCOPlaceResponse>` | Trailing Stop Market |
-| `placeFcoTrailingStopLimit` | `accountNo, symbol, side, quantity, activePrice, trailingAmount, priceSlip, fromDate, toDate` | `Promise<FCOPlaceResponse>` | Trailing Stop Limit |
-| `placeFcoOco` | `accountNo, symbol, side, quantity, tpActivePrice, slActivePrice, tpPrice, slPrice, tpSlip, slSlip, fromDate, toDate` | `Promise<FCOPlaceResponse>` | One-Cancels-the-Other |
-| `placeFcoBullBear` | `accountNo, symbol, side, quantity, price, priceSlip, tpActivePrice, slActivePrice, tpPrice, slPrice, tpSlip, slSlip, fromDate, toDate` | `Promise<FCOPlaceResponse>` | Bull Bear order |
-| `cancelFco` | `fcoId` | `Promise<FCOCancelResponse>` | Cancel FCO by ID |
-| `getFcoByAccountNo` | `accountNo, pageIndex?, pageSize?` | `Promise<FCOListResponse>` | List account's FCO orders |
-| `getFcoBySymbol` | `accountNo, symbol, pageIndex?, pageSize?` | `Promise<FCOListResponse>` | Filter FCO orders by symbol |
-| `getFcoByStatus` | `accountNo, processStatus, pageIndex?, pageSize?` | `Promise<FCOListResponse>` | Filter FCO by status (`TRIT`, `WAIT`, etc.) |
-| `getFcoByDate` | `accountNo, fromDate, toDate, pageIndex?, pageSize?` | `Promise<FCOListResponse>` | Filter FCO by date range |
-| `getFcoById` | `accountNo, fcoId` | `Promise<FCOInfo \| null>` | Single FCO order details |
-| `getFcoOrderBook` | `fcoId, pageIndex?, pageSize?` | `Promise<FCOOrderBookResponse>` | Execution logs of FCO |
-
----
-
-## 4. Code Examples for Common AI Tasks
-
-### Example 1: Placing & Instantly Cancelling a GTD FCO Order
-```typescript
-import {
-  Auth,
-  Trading,
-  OrderSide,
-  OrderType,
-  fromBeginningOfDay,
-  fromEndOfDay,
-} from '@ssi.developer/ssi-sdk';
-
-const auth = new Auth(config);
-await auth.authenticate("123456");
+await auth.authenticate(process.env.SSI_OTP);          // market data needs no OTP
+const data = new Data(auth);
 const trading = new Trading(auth);
-
-const accountNo = "1234561";
-const fromDate = fromBeginningOfDay(); // "YYYY/MM/DD 00:00:00"
-const toDate = fromEndOfDay();           // "YYYY/MM/DD 23:59:59"
-
-// 1. Place GTD order
-const gtdRes = await trading.trading.placeFcoGtd(
-  accountNo,
-  "SSI",
-  OrderSide.BUY,
-  100,
-  OrderType.MTL,
-  0.5,
-  fromDate,
-  toDate
-);
-console.log(`Placed FCO ID: ${gtdRes.fcoId}`);
-
-// 2. Immediately cancel FCO order
-const cancelRes = await trading.trading.cancelFco(gtdRes.fcoId);
-console.log(`Cancelled FCO ID: ${cancelRes.fcoId}`);
-```
-
-### Example 2: Realtime Streaming Callbacks (Market Data & Trading Events)
-```typescript
-import { Stream, DataMessage, TradingMessage, HeartbeatMessage } from '@ssi.developer/ssi-sdk';
-
 const stream = new Stream(auth);
-
-stream.streaming.onData = (msg: DataMessage) => {
-  console.log('[Market Data]', msg);
-};
-
-stream.streaming.onTrading = (msg: TradingMessage) => {
-  console.log('[Trading Event]', msg);
-};
-
-stream.streaming.onHeartbeat = (msg: HeartbeatMessage) => {
-  console.log('[Heartbeat]', msg.status);
-};
-
-await stream.streaming.connect();
-stream.streaming.subscribeSymbolTrade(["SSI"]);
-stream.streaming.subscribeOrderStatus("1234561");
-stream.streaming.subscribeFcoOrderStatus("1234561");
 ```
+
+`new Auth(config | options, overrides?)` never mutates a `Config` you pass and throws `ConfigurationError` on an unknown option.
+Read secrets from the environment or a vault, never from source. Nothing in `Config`, `Token` or an exception prints a secret,
+but do not log them yourself.
+
+Smart OTP: `const { transactionId } = await auth.requestOtpTyped()`, then
+`await auth.ensureAuthenticated(undefined, transactionId)` polls until the user approves (`otpPollIntervalMs` / `otpPollMaxWaitMs`).
+`ensureAuthenticated()` reuses, refreshes or authenticates; it throws `ReauthenticationRequired` when a new OTP is needed.
+
+`Config` options: `clientId`, `apiUrl`, `streamingUrl`, `tradingApiDomain`, `tradingWsDomain`, `apiKey`, `apiSecret`,
+`privateKey`, `timeoutMs`, `maxRetries`, `retryDelayMs`, `rateLimitPerSecond`, `maxBatchOrders` (20), `proxy`, `userAgent`,
+`autoReconnect`, `otpPollIntervalMs`, `otpPollMaxWaitMs`, `logLevel`. Blank or missing URLs fall back to defaults. WebSocket URLs must be `wss://`.
 
 ---
 
-## 5. Rules & Guidelines for AI Code Generators
+## 3. API cheatsheet (full list: `API_METHODS.md`)
 
-1. **Date Format for FCO**: FCO date arguments (`fromDate`, `toDate`) **must** be formatted as `"YYYY/MM/DD HH:MM:SS"` (use `fromBeginningOfDay()` / `fromEndOfDay()`).
-2. **Never hardcode secrets**: Access tokens, private keys, API secrets, and OTPs should never be committed to git. Use environment variables or local `config.json`.
-3. **Use Enum constants**: Pass Enum constants (`OrderSide.BUY`, `OrderType.LO`, `FCOOperator.GREATER_OR_EQUAL`) instead of raw strings.
-4. **Clean Builds**: Maintain TypeScript strict typing and run `npm run type-check && npm run build` to verify changes.
+### 3.1 Market data (`data.marketData`)
+
+| Method | Returns | Notes |
+|---|---|---|
+| `getOhlc1Minute(symbol)` (also 3/5/15 minute, `1Hour`) | `OHLCData[]` | latest trading day |
+| `getOhlc1MinuteHistorical(symbol, from, to, page?, size?)` (also 3/5/15 minute, 1Hour, 1Day) | `OHLCData[]` | date-only values are completed to the day |
+| `iterOhlc(symbol, timeframe, from?, to?, size?)` | `AsyncGenerator<OHLCData>` | follows every page: `for await (const bar of ...)` |
+| `getOhlcAll(symbol, timeframe, from?, to?, size?, ascending?)` | `OHLCData[]` | all pages |
+| `getIndexes()` / `getIndexesByBoard(board)` | `MarketIndexes[]` | |
+| `getIndexSummary(index)` / `getBoardSummary(board)` (+ `Historical(x, tradingDate)`) | `MarketIndexSummary \| undefined` | |
+| `getSecuritiesInfo(symbol)` / `...ByIndex` / `...ByBoard` | `SecuritiesInfo` | |
+| `getSecuritiesSummary(symbol)` / `...Historical` / `...ByIndex` | `SecuritiesSummary[]` | follows `pagesCount` |
+| `getMasterData()` / `getMasterDataHistorical(from, to)` | `MasterData[]` | ceiling, floor, reference |
+
+`getOhlc1WeekHistorical` / `getOhlc1MonthHistorical` throw `ValidationError` (the server rejects them).
+
+### 3.2 Account and portfolio (`trading.account`, `trading.portfolio`)
+
+`getAccountInfo()`; `getEquityBalance`, `getDerivativeBalance`, `getEquityPositions`, `getDerivativePositions`,
+`getOpenDerivativePositions`, `getClosedDerivativePositions`, `getEquityPpmmr`, `getDerivativePpmmr`, `getTodayOrders`
+(all take `accountNo`), `getHistoricalOrders(accountNo, fromDate, toDate)`.
+
+### 3.3 Orders (`trading.trading`)
+
+`placeLimitOrder(accountNo, symbol, side, quantity, price, clientRequestId?)`, `placeMarketOrder`, `placeAtoOrder`,
+`placeAtcOrder`, `placeOrder(..., price, orderType, clientRequestId?)`; `modifyOrderPrice` / `modifyOrderQuantity`
+(by `clientRequestId`) and `...ByOrderId`; `cancelOrder(accountNo, clientRequestId)` / `cancelOrderById(accountNo, orderId)`;
+`placeBatchOrders(orders)` / `cancelBatchOrders(orders)` (at most `Config.maxBatchOrders`, one signed request, one bad order
+fails the batch); `getMaxBuySell(accountNo, symbol, price)` / `getMaxBuySellAtMarketPrice`.
+
+### 3.4 FCO conditional orders (`trading.trading`)
+
+`placeFcoGtd`, `placeFcoStop`, `placeFcoStopLimit`, `placeFcoTrailingStop`, `placeFcoTrailingStopLimit`, `placeFcoOco`,
+`placeFcoBullBear` (all end with `fromDate, toDate, code?`), `cancelFco(fcoId, code?)`, `getFcoByAccountNo`, `getFcoBySymbol`,
+`getFcoByStatus`, `getFcoByDate`, `getFcoById`, `getFcoOrderBook`, `getFcoStatusHistory`.
+Dates must be `YYYY/MM/DD HH:MM:SS`, `from <= to`, a window of at most 31 days (`fromBeginningOfDay()` / `fromEndOfDay()` help).
+`code` is the optional OTP for conditional orders.
+
+### 3.5 Streaming (`stream.streaming`)
+
+Every `subscribe*` / `unsubscribe*` and `disconnect()` returns a `Promise`: `await` them.
+
+```typescript
+const s = stream.streaming;
+s.onOrder = (m) => console.log('order', m.orderId, m.status);
+s.onConnection = (e) => console.log('connection', e.state);
+await s.connect();
+await s.subscribeTrades(['SSI']);
+await s.subscribeOrders('1234561');   // one account, or '*' for all
+await s.wait();
+```
+
+Typed callbacks: `onMarketFlag`, `onIndexSummary`, `onOrder`, `onOrderMatch`, `onPortfolio` (plus `onData` / `onTrading` /
+`onHeartbeat` that receive everything). State: `isConnected`, `reconnectCount`, `lastError`. The connection reconnects by itself
+(capped exponential backoff, fresh token each time, resubscribe), so do not rebuild it on a drop. Interval topics accept only
+`tick`, `1m`, `5m`. `buildTopic` / `buildTopics` build validated topic strings.
+
+### 3.6 Experimental trading WebSocket
+
+```typescript
+import { asyncTradingWs } from '@ssi.developer/ssi-sdk/experimental';
+const ws = await asyncTradingWs(auth);           // connects to Config.tradingWsUrl
+await ws.subscribeOrderEvents('1234561');
+const ack = await ws.placeOrder('1234561', 'SSI', OrderSide.BUY, 100, '25000', OrderType.LO, 'my-id-1');
+await ws.close();
+```
+
+Use it only against an environment you were told supports it. It is not part of `Trading` or `Stream`. Orders return the `PD`
+ack; the outcome arrives on order events (`ws.client.onEvent`). A command that times out is not retried.
+
+---
+
+## 4. Errors
+
+All extend `SSIError` (`message`, `code`, `statusCode`, `responseBody` (masked), `headers`): `APIError` (`DuplicateRequestError`),
+`AuthenticationError` (`SmartOTPPendingError`, `SmartOTPRejectedError`, `ReauthenticationRequired`), a sibling of `APIError`, not
+a child: `instanceof APIError` does not catch auth failures. Also `RateLimitError`
+(`retryAfterMs` milliseconds, `limit`, `remaining`, `reset`), `WebSocketError` (`TradingWSError`), `ValidationError`, `ConfigurationError`.
+`ServerErrorCode` lists the server's codes. Show callers a generic message; do not echo `responseBody` to end users.
+
+---
+
+## 5. Rules for code generators
+
+1. Dates for FCO: `"YYYY/MM/DD HH:MM:SS"`. Market-data dates: `YYYY/MM/DD` (date-only is accepted).
+2. Never hardcode or print secrets (keys, secrets, tokens, OTP, `transactionId`, account or customer ids in logs/tests).
+3. Use the enums (`OrderSide.BUY`, `OrderType.LO`, `FCOOperator.GREATER_OR_EQUAL`, `Timeframe`) instead of raw strings.
+4. `await` every streaming call; do not fire-and-forget a subscribe.
+5. Do not retry an order automatically after a timeout or network error: look it up by `clientRequestId` first.
+6. Keep TLS verification on, including in dev. Do not point the SDK at `ws://` or plain `http://` hosts.
+7. Verify changes with `npm run type-check && npm run build && npm test`.
+8. Deprecated names still work (some also warn at runtime): `buildGtdPayload` and friends, `mapFco*`, `modifyOrderPriceById`,
+   `modifyOrderQuantityById`, `subscribeFcoOrderStatus`. Prefer the new names.

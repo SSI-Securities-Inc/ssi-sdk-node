@@ -5,8 +5,17 @@ export { TradingService } from './trading.js';
 export { PortfolioService } from './portfolio.js';
 export {
   StreamingService,
+  classifyDataMessage,
+  classifyTradingMessage,
+  parseDataMessage,
+  parseTradingMessage,
+} from './streaming.js';
+export type {
   DataCallback,
   TradingCallback,
   HeartbeatCallback,
   ResponseCallback,
+  ConnectionCallback,
+  DataKind,
+  TradingKind,
 } from './streaming.js';

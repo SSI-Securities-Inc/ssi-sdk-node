@@ -21,6 +21,8 @@ Node.js/TypeScript SDK cho nền tảng giao dịch chứng khoán SSI. Hỗ tr�
 - [Streaming realtime](#6-streaming-realtime)
 - [Xử lý lỗi](#7-xử-lý-lỗi)
 - [Cấu hình nâng cao](#8-cấu-hình-nâng-cao)
+- [Trading WebSocket (thử nghiệm)](#9-trading-websocket-thử-nghiệm)
+- [Tài liệu liên quan](#tài-liệu-liên-quan)
 
 ---
 
@@ -61,10 +63,21 @@ const config = new Config({
 | `privateKey` | `string` | `""` | Private key cho ký lệnh giao dịch |
 | `apiUrl` | `string` | `"https://api.ssi.com.vn"` | URL REST API |
 | `streamingUrl` | `string` | `"wss://stream.ssi.com.vn/ws/v3"` | URL WebSocket streaming |
-| `timeout` | `number` | `60000` | Timeout request (millisecond) |
+| `timeoutMs` | `number` | `60000` | Timeout request (millisecond) |
 | `maxRetries` | `number` | `5` | Số lần retry tối đa |
-| `retryDelay` | `number` | `2000` | Delay cơ sở giữa các lần retry (exponential backoff, millisecond) |
-| `rateLimitPerSecond` | `number` | `10` | Giới hạn request/giây (0 = không giới hạn) |
+| `retryDelayMs` | `number` | `2000` | Delay cơ sở giữa các lần retry (exponential backoff, millisecond) |
+| `rateLimitPerSecond` | `number` | `10` | Giới hạn request/giây (0 = không giới hạn). SDK còn theo header `X-RateLimit-*` của server |
+| `tradingApiDomain` | `string` | `"https://api.ssi.com.vn"` | URL REST giao dịch. Còn mặc định thì đi theo `apiUrl`; getter `tradingApiUrl` |
+| `tradingWsDomain` | `string` | `"wss://api.ssi.com.vn/ws/v3/trading"` | URL trading WebSocket (thử nghiệm); getter `tradingWsUrl` |
+| `maxBatchOrders` | `number` | `20` | Số lệnh tối đa cho một batch (`placeBatchOrders` / `cancelBatchOrders`) |
+| `userAgent` | `string` | *(UA trình duyệt)* | User-Agent cho HTTP, WebSocket và payload lệnh |
+| `autoReconnect` | `boolean` | `true` | Tự kết nối lại streaming khi rớt |
+| `otpPollIntervalMs` | `number` | `5000` | Millisecond giữa các lần poll Smart OTP |
+| `otpPollMaxWaitMs` | `number` | `60000` | Tổng millisecond chờ user approve Smart OTP |
+| `proxy` | `string` | — | Proxy cho HTTP. **Không** áp dụng cho WebSocket (thư viện `ws` không hỗ trợ proxy) |
+| `logLevel` | `string` | `"INFO"` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+
+URL bỏ trống hoặc rỗng sẽ dùng mặc định; URL WebSocket phải là `wss://`. Truyền option không tồn tại sẽ ném `ConfigurationError`. `new Auth(config)` không sửa `config` bạn đưa vào. `Config`, `Token` và exception không in secret (`apiSecret`, `privateKey`, token đều bị che), nhưng đừng tự log chúng.
 
 ---
 
@@ -128,8 +141,8 @@ async function main() {
   const stream = new Stream(auth);
   stream.streaming.onData = (msg) => console.log('Realtime data:', msg);
   await stream.streaming.connect();
-  stream.streaming.subscribeSymbolTrade(["SSI"]);
-  stream.streaming.ping();
+  await stream.streaming.subscribeSymbolTrade(["SSI"]);
+  await stream.streaming.ping();
   await stream.streaming.wait();
 }
 
@@ -195,6 +208,13 @@ console.log(result);
    điền thẳng mã đó vào `ensureAuthenticated("123456")` (hoặc `authenticate("123456")`)
    — **không cần** gọi `requestOtp()` trước.
 
+Cần kiểu rõ ràng thì dùng `requestOtpTyped()` (trả `OTPResponse`; `transactionId` chỉ có với Smart OTP):
+
+```typescript
+const otp = await auth.requestOtpTyped();
+if (otp.transactionId) await auth.ensureAuthenticated(undefined, otp.transactionId);
+```
+
 ### 1.3. Làm mới token
 
 ```typescript
@@ -228,6 +248,7 @@ console.log(auth.getToken());                       // Token object hoặc null
 console.log(auth.tokenManager.getAccessToken());   // Access token string hoặc undefined
 console.log(auth.tokenManager.isTokenExpired());   // true/false
 console.log(auth.tokenManager.hasRefreshToken());  // true/false
+console.log(auth.canRefresh);                      // refresh token còn dùng được?
 ```
 
 ---
@@ -273,8 +294,10 @@ Truy cập qua `data.marketData` (client `Data`).
 | | `getOhlc15MinuteHistorical(...)` | 15 phút |
 | | `getOhlc1HourHistorical(...)` | 1 giờ |
 | | `getOhlc1DayHistorical(...)` | 1 ngày |
-| | `getOhlc1WeekHistorical(...)` | 1 tuần |
-| | `getOhlc1MonthHistorical(...)` | 1 tháng |
+| | `getOhlc1WeekHistorical(...)` | Ngừng hỗ trợ: ném `ValidationError` (server từ chối timeframe này) |
+| | `getOhlc1MonthHistorical(...)` | Ngừng hỗ trợ: ném `ValidationError` |
+| **OHLC mọi trang** | `iterOhlc(symbol, timeframe, from?, to?, size?)` | Async generator, tự lật trang |
+| | `getOhlcAll(symbol, timeframe, from?, to?, size?, ascending?)` | Gom toàn bộ nến trong khoảng |
 | **Chỉ số** | `getIndexes()` | Tất cả chỉ số |
 | | `getIndexesByBoard(board)` | Chỉ số theo sàn |
 | **Index Summary** | `getIndexSummary(index)` | Summary chỉ số hiện tại |
@@ -330,6 +353,17 @@ const ohlc = await data.marketData.getOhlc1DayHistorical(
 | `to` | `string` | *(bắt buộc)* | Ngày kết thúc |
 | `page` | `number` | `1` | Trang hiện tại |
 | `size` | `number` | `1000` | Số bản ghi/trang |
+
+**Duyệt toàn bộ nến trong khoảng (tự lật trang):**
+
+```typescript
+for await (const bar of data.marketData.iterOhlc("SSI", "1D", "2026/01/01", "2026/03/31")) {
+  console.log(bar.tradingDate, bar.closePrice);
+}
+const all = await data.marketData.getOhlcAll("SSI", "1D", "2026/01/01", "2026/03/31");
+```
+
+`from`/`to` chỉ có ngày thì SDK tự bổ sung `00:00:00` / `23:59:59` (server trả 400213 với ngày trần). `page`/`size` < 1 bị từ chối ngay ở client. `getSecuritiesSummary` và `getMasterData` tự đi theo `pagesCount`.
 
 ### 3.2. Danh sách chỉ số thị trường
 
@@ -521,15 +555,19 @@ Truy cập qua `trading.trading` (client `Trading`).
 | | `placeAtoOrder(accountNo, symbol, side, quantity)` | `PlaceOrderResponse` |
 | | `placeAtcOrder(accountNo, symbol, side, quantity)` | `PlaceOrderResponse` |
 | **Sửa lệnh** | `modifyOrderPrice(accountNo, clientRequestId, price)` | `ModifyOrderResponse` |
-| | `modifyOrderPriceById(accountNo, orderId, price)` | `ModifyOrderResponse` |
+| | `modifyOrderPriceByOrderId(accountNo, orderId, price)` | `ModifyOrderResponse` |
 | | `modifyOrderQuantity(accountNo, clientRequestId, quantity)` | `ModifyOrderResponse` |
-| | `modifyOrderQuantityById(accountNo, orderId, quantity)` | `ModifyOrderResponse` |
+| | `modifyOrderQuantityByOrderId(accountNo, orderId, quantity)` | `ModifyOrderResponse` |
 | **Huỷ lệnh** | `cancelOrder(accountNo, clientRequestId)` | `CancelOrderResponse` |
 | | `cancelOrderById(accountNo, orderId)` | `CancelOrderResponse` |
+| **Batch** | `placeBatchOrders(orders)` | `BatchOrderResponse` |
+| | `cancelBatchOrders(orders)` | `BatchOrderResponse` |
 | **Sức mua/bán** | `getMaxBuySell(accountNo, symbol, price)` | `MaxBuySellResponse` |
 | | `getMaxBuySellAtMarketPrice(accountNo, symbol)` | `MaxBuySellResponse` |
 
 ### 5.1. Đặt lệnh
+
+Mọi method `place*` nhận thêm `clientRequestId` (tuỳ chọn, tối đa 20 ký tự) làm idempotency key. Lệnh chỉ được gửi **một lần**: SDK không bao giờ tự retry khi timeout. Gặp lỗi mạng thì tra sổ lệnh theo `clientRequestId` trước khi gửi lại. Giá gửi đi là chuỗi thập phân thường (không dạng mũ); `quantity` phải là số nguyên dương; lệnh LO thiếu giá bị từ chối. Tên cũ `modifyOrderPriceById` / `modifyOrderQuantityById` vẫn chạy nhưng đã deprecated.
 
 ```typescript
 import { OrderSide, OrderType } from '@ssi.developer/ssi-sdk';
@@ -572,7 +610,7 @@ Chỉ có thể sửa **giá** hoặc **số lượng** (không đồng thời).
 
 ```typescript
 // Sửa giá theo orderId
-const result = await trading.trading.modifyOrderPriceById(
+const result = await trading.trading.modifyOrderPriceByOrderId(
   "1234561",
   "ORD123",
   68000
@@ -585,6 +623,18 @@ const result = await trading.trading.modifyOrderPriceById(
 // Huỷ lệnh theo orderId
 const result = await trading.trading.cancelOrderById("1234561", "ORD123");
 ```
+
+### 5.3a. Lệnh batch
+
+```typescript
+const res = await trading.trading.placeBatchOrders([
+  { accountNo: "1234561", symbol: "SSI", side: OrderSide.BUY, quantity: 100, price: 25000, orderType: OrderType.LO },
+  { accountNo: "1234561", symbol: "HPG", side: OrderSide.BUY, quantity: 200, price: 27000, orderType: OrderType.LO },
+]);
+await trading.trading.cancelBatchOrders([{ accountNo: "1234561", orderId: "ORD123" }]);
+```
+
+Tối đa `Config.maxBatchOrders` (mặc định 20) lệnh mỗi request, ký trên toàn bộ body; một lệnh sai thì cả batch bị từ chối. Khi huỷ, mỗi phần tử cần `orderId` hoặc `clientRequestId`.
 
 ### 5.4. Sức mua/bán tối đa
 
@@ -648,13 +698,16 @@ await trading.trading.cancelFco(gtd.fcoId);
 | `placeFcoTrailingStopLimit(...)` | Đặt lệnh Trailing Stop Limit |
 | `placeFcoOco(...)` | Đặt lệnh OCO (One Cancels the Other) |
 | `placeFcoBullBear(...)` | Đặt lệnh Bull Bear |
-| `cancelFco(fcoId)` | Hủy lệnh FCO theo `fcoId` |
+| `cancelFco(fcoId, code?)` | Hủy lệnh FCO theo `fcoId` |
 | `getFcoByAccountNo(...)` | Tra cứu danh sách FCO theo tài khoản |
 | `getFcoBySymbol(...)` | Tra cứu FCO lọc theo mã chứng khoán |
 | `getFcoByStatus(...)` | Tra cứu FCO lọc theo trạng thái |
 | `getFcoByDate(...)` | Tra cứu FCO lọc theo khoảng ngày |
 | `getFcoById(...)` | Lấy thông tin 1 lệnh FCO theo ID |
 | `getFcoOrderBook(...)` | Lấy lịch sử thực thi (Order Book) của FCO |
+| `getFcoStatusHistory(fcoId)` | Các lần chuyển trạng thái của FCO |
+
+Các method `placeFco*` nhận tham số cuối `code?` (OTP, tuỳ chọn). Ngày FCO phải dạng `YYYY/MM/DD HH:MM:SS`, `from <= to`, cửa sổ tối đa 31 ngày.
 
 ---
 
@@ -668,7 +721,7 @@ Truy cập qua `stream.streaming` (client `Stream`). Cần gọi `await stream.s
 | Nhóm | Method | Mô tả |
 |------|--------|-------|
 | **Kết nối** | `connect()` | Kết nối WebSocket |
-| | `disconnect()` | Ngắt kết nối |
+| | `disconnect()` | Ngắt kết nối (async, dừng luôn vòng ping) |
 | | `wait()` | Chờ nhận dữ liệu (block) |
 | **Heartbeat** | `ping(onResponse?, intervalMs?)` | Ping server |
 | **Subscribe mã** | `subscribeSymbol(symbols, onResponse?)` | Trade + Quote + Room |
@@ -681,9 +734,12 @@ Truy cập qua `stream.streaming` (client `Stream`). Cần gọi `await stream.s
 | **Subscribe sàn/chỉ số** | `subscribeBoard(boards, onResponse?)` | Theo sàn |
 | | `subscribeIndex(indices, onResponse?)` | Theo chỉ số |
 | **Subscribe giao dịch** | `subscribeOrderStatus(accountNo?, onResponse?)` | Trạng thái lệnh thường & FCO |
-| | `subscribeFcoOrderStatus(accountNo?, onResponse?)` | Alias cho `subscribeOrderStatus` |
 | | `subscribePortfolio(accountNo?, onResponse?)` | Portfolio changes |
-
+| **Subscribe khác** | `subscribeMarket(symbols, onResponse?)` | Kênh market theo mã |
+| | `subscribeMarketFlag(onResponse?)` | Cờ phiên (ATO, LO, ATC...) |
+| | `subscribeIndexTrade(indices, interval?, onResponse?)` | Tick của chỉ số |
+| | `subscribeIndexSummary(indices, onResponse?)` | Tổng hợp chỉ số |
+| **Truy vấn** | `listSubscription(timeoutMs?)` | Các topic đang đăng ký |
 | **Unsubscribe** | `unsubscribeSymbol(symbols)` | Huỷ tất cả kênh cho mã |
 | | `unsubscribeSymbolTrade(symbols)` | Huỷ trade |
 | | `unsubscribeSymbolQuote(symbols)` | Huỷ quote |
@@ -692,12 +748,23 @@ Truy cập qua `stream.streaming` (client `Stream`). Cần gọi `await stream.s
 | | `unsubscribeSymbolOddLot(symbols)` | Huỷ lô lẻ |
 | | `unsubscribeBoard(boards)` | Huỷ sàn |
 | | `unsubscribeIndex(indices)` | Huỷ chỉ số |
+| | `unsubscribeOrderStatus(accountNo?)`, `unsubscribePortfolio(accountNo?)` | Huỷ lệnh / portfolio |
+| | `unsubscribeMarket`, `unsubscribeMarketFlag`, `unsubscribeIndexTrade`, `unsubscribeIndexSummary` | Huỷ các kênh tương ứng |
+| | `unsubscribeAll()` | Huỷ mọi đăng ký của kết nối |
+
+Tất cả `subscribe*` / `unsubscribe*` / `disconnect()` trả về `Promise`: **luôn `await`** để bắt lỗi validate và lỗi gửi (không await thì lỗi thành unhandled rejection). Có thêm alias dễ đọc: `subscribeTrades`, `subscribeQuotes`, `subscribeOrders`, `subscribeIndexTicks`, `subscribeMasterData`, `subscribeSessionFlag`... Tên `subscribeFcoOrderStatus` đã deprecated (dùng `subscribeOrderStatus`, cùng topic `order.<account>`).
+
+Kết nối tự reconnect (backoff luỹ thừa có giới hạn, token mới mỗi lần, tự resubscribe); đừng tự tạo lại kết nối khi rớt. Trạng thái: `isConnected`, `reconnectCount`, `lastError`. Topic interval chỉ nhận `tick`, `1m`, `5m`; `buildTopic` / `buildTopics` tạo topic đã validate.
+`subscribeBoard`/`subscribeIndex` gửi `trade.<mã>@*` (+ `quote`, `room`): server chỉ rải sàn/rổ chỉ số ra các mã thành phần khi có `@*`.
+Mỗi topic chỉ một mã (hoặc khoảng `A-B`); danh sách `VNM,FPT` trong một topic bị `ValidationError` vì server không tách dấu phẩy.
 
 **Callbacks:**
 
 - `onData`: `(msg: DataMessage) => void` — Nhận market data (tự động phân loại type)
 - `onTrading`: `(msg: TradingMessage) => void` — Nhận sự kiện giao dịch (lệnh/portfolio)
 - `onHeartbeat`: `(msg: HeartbeatMessage) => void` — Nhận heartbeat
+- Callback theo loại: `onMarketFlag`, `onIndexSummary`, `onOrder`, `onOrderMatch`, `onPortfolio` (`onData`/`onTrading` vẫn nhận mọi thứ)
+- `onConnection`: `(event: ConnectionEvent) => void` — Trạng thái kết nối (connected, reconnecting, ...)
 
 ### 6.1. Thiết lập callback
 
@@ -740,38 +807,38 @@ stream.streaming.onHeartbeat = (msg) => {
 
 ```typescript
 // Subscribe tất cả kênh (trade + quote + room) cho mã
-stream.streaming.subscribeSymbol(["SSI", "HPG"]);
+await stream.streaming.subscribeSymbol(["SSI", "HPG"]);
 
 // Subscribe từng kênh riêng
-stream.streaming.subscribeSymbolTrade(["SSI"]);
-stream.streaming.subscribeSymbolQuote(["SSI"]);
+await stream.streaming.subscribeSymbolTrade(["SSI"]);
+await stream.streaming.subscribeSymbolQuote(["SSI"]);
 
 // Subscribe OHLCV theo interval
 import { Timeframe } from '@ssi.developer/ssi-sdk';
-stream.streaming.subscribeSymbolOhlcv(["SSI"], Timeframe.MINUTE_1);
+await stream.streaming.subscribeSymbolOhlcv(["SSI"], Timeframe.MINUTE_1);
 
 // Subscribe theo sàn
-stream.streaming.subscribeBoard([Board.HOSE]);
+await stream.streaming.subscribeBoard([Board.HOSE]);
 ```
 
 ### 6.3. Subscribe giao dịch (order status & portfolio)
 
 ```typescript
 // Subscribe tất cả tài khoản
-stream.streaming.subscribeOrderStatus();
+await stream.streaming.subscribeOrderStatus();
 
 // Subscribe portfolio
-stream.streaming.subscribePortfolio();
+await stream.streaming.subscribePortfolio();
 ```
 
 ### 6.4. Heartbeat
 
 ```typescript
 // Ping một lần
-stream.streaming.ping();
+await stream.streaming.ping();
 
 // Ping tự động theo interval (30 giây)
-stream.streaming.ping(undefined, 30000);
+await stream.streaming.ping(undefined, 30000);
 ```
 
 ### 6.5. Ví dụ streaming hoàn chỉnh
@@ -793,9 +860,9 @@ async function run() {
   stream.streaming.onData = (msg) => console.log('Data:', msg);
   stream.streaming.onTrading = (msg) => console.log('Trading:', msg);
 
-  stream.streaming.subscribeSymbol(["SSI"]);
-  stream.streaming.subscribeOrderStatus();
-  stream.streaming.ping();
+  await stream.streaming.subscribeSymbol(["SSI"]);
+  await stream.streaming.subscribeOrderStatus();
+  await stream.streaming.ping();
 
   await stream.streaming.wait();
 }
@@ -824,11 +891,19 @@ try {
 | Exception | Mô tả |
 |-----------|-------|
 | `SSIError` | Base exception — có `message`, `code`, `statusCode`, `responseBody`, `headers` |
-| `AuthenticationError` | Xác thực thất bại (sai credentials, token hết hạn) |
+| `AuthenticationError` | Xác thực thất bại (sai credentials, token hết hạn). Con trực tiếp của `SSIError`, **cùng cấp** với `APIError` (không phải con của `APIError`), nên `catch (e) { if (e instanceof APIError) }` không bắt lỗi xác thực |
 | `APIError` | API trả về lỗi |
 | `WebSocketError` | Lỗi kết nối hoặc giao tiếp WebSocket |
 | `ValidationError` | Lỗi validate input |
-| `RateLimitError` | Vượt quá giới hạn request — có thêm `retryAfter` |
+| `RateLimitError` | Vượt quá giới hạn request — có thêm `statusCode`, `retryAfterMs` (millisecond), `limit`, `remaining`, `reset` |
+| `ConfigurationError` | Cấu hình sai (option không tồn tại, URL sai scheme) |
+| `SmartOTPPendingError` | Smart OTP chưa được duyệt trên thiết bị (HTTP 202 / 401114); con của `AuthenticationError` |
+| `SmartOTPRejectedError` | Smart OTP không thể thành công nữa (bị từ chối, hết hạn hoặc transaction không tồn tại); con của `AuthenticationError` |
+| `ReauthenticationRequired` | Không refresh được phiên, cần OTP mới; con của `AuthenticationError` |
+| `DuplicateRequestError` | HTTP 409: `clientRequestId`/`batchRequestId` đã dùng trong ngày; con của `APIError`. Lệnh gốc có thể vẫn đang sống, SDK không tự gửi lại với id khác |
+| `TradingWSError` | Lỗi của trading WebSocket thử nghiệm (con của `WebSocketError`) |
+
+`APIError.code` là mã lỗi của server khi body có mã (HTTP status nằm ở `statusCode`); enum `ServerErrorCode` liệt kê các mã này. `responseBody` đã được che thông tin nhạy cảm, nhưng đừng hiển thị nó cho người dùng cuối.
 
 ---
 
@@ -842,10 +917,57 @@ const auth = new Auth({
   apiKey: "YOUR_API_KEY",
   apiSecret: "YOUR_API_SECRET",
   maxRetries: 3,
-  retryDelay: 1000,           // ms
+  retryDelayMs: 1000,
   rateLimitPerSecond: 5,
 });
 ```
+
+### Hành vi rate limit và retry
+
+- Chỉ request `GET` được retry khi timeout. `POST`/`PUT`/`DELETE` (xác thực, OTP, đặt/sửa/huỷ lệnh, FCO) chỉ gửi **một lần**.
+- SDK đọc header `X-RateLimit-Limit` / `X-RateLimit-Remaining` của server để giảm tốc (không bao giờ vượt `rateLimitPerSecond`). Gặp HTTP 429 trên `GET` thì chờ theo `Retry-After` (tối đa 3 lần, mỗi lần không quá 30 giây) rồi mới ném `RateLimitError`. Số liệu gần nhất: `auth.restClient.rateLimit`.
+
+---
+
+## 9. Trading WebSocket (thử nghiệm)
+
+Đặt lệnh và truy vấn qua WebSocket giao dịch (`/ws/v3/trading`). **EXPERIMENTAL**: chỉ dùng với môi trường đã được thông báo hỗ trợ. Không nằm trong entry chính và `Trading`/`Stream` không dùng đến nó. Import từ entry riêng:
+
+```typescript
+import { asyncTradingWs } from '@ssi.developer/ssi-sdk/experimental';
+
+await auth.ensureAuthenticated(process.env.SSI_OTP);
+const ws = await asyncTradingWs(auth);   // kết nối tới Config.tradingWsUrl (wss://)
+ws.client.onEvent = (evt) => console.log('event', evt);
+
+await ws.subscribeOrderEvents("1234561");   // đúng 1 tài khoản, không dùng "*"
+const ack = await ws.placeOrder("1234561", "SSI", OrderSide.BUY, 100, "25000", OrderType.LO, "my-id-1");
+await ws.close();
+```
+
+| Nhóm | Method |
+|------|--------|
+| Lệnh | `placeOrder`, `amendOrder`, `cancelOrder`, `batchNewOrders`, `batchCancelOrders` |
+| FCO | `placeFco({ kind, params })`, `cancelFco`, `listFco`, `fcoOrderBook`, `fcoStatusHistory` |
+| Truy vấn | `queryPosition`, `queryMaxBuySell`, `queryAccountBalance`, `queryPpmmrAccount`, `queryOrderBook` |
+| Sự kiện | `subscribeOrderEvents`, `subscribePortfolioEvents`, `unsubscribe*Events`, `unsubscribeAllEvents` |
+| Khác | `command(method, params)`, `close()` |
+
+Lưu ý:
+
+- Lệnh trả về ack `PD`; kết quả khớp/từ chối đến qua sự kiện lệnh (`client.onEvent`).
+- Một lệnh bị timeout **không** được retry tự động: tra sổ lệnh theo `clientRequestId` trước khi gửi lại.
+- Chữ ký mặc định `"auto"`: thử base64, nếu server từ chối (401006/401008/401013) thì thử lại một lần bằng hex.
+- `placeFco` nhận `{ kind: 'gtd' | 'stop' | 'trailingStop' | 'oco' | 'bullBear', params }` (khác Python, nơi chọn theo class).
+- `Config.proxy` không áp dụng cho WebSocket; cần proxy thì truyền `agent` qua option của client.
+
+---
+
+## Tài liệu liên quan
+
+- [API_METHODS.md](API_METHODS.md): danh sách đầy đủ method và tham số.
+- [CHANGELOG.md](CHANGELOG.md): thay đổi theo phiên bản (3.3.0 có thay đổi **BREAKING**: `subscribe*`/`unsubscribe*`/`disconnect()` của streaming giờ trả `Promise`).
+- [AGENT.md](AGENT.md): hướng dẫn cho AI agent và người tích hợp.
 
 ---
 
@@ -1108,6 +1230,7 @@ Các kiểu dữ liệu (Interfaces/Types) có thể import từ `@ssi.developer
 | `buyingQuantity` / `boughtQuantity` | `number` | SL chờ mua / đã mua |
 | `sellingQuantity` / `soldQuantity` | `number` | SL chờ bán / đã bán |
 | `t1SellQuantity` / `t2SellQuantity` | `number` | SL bán T+1/T+2 |
+| `t1BuyQuantity` / `t2BuyQuantity` | `number` | SL mua về T+1/T+2 (server trả `t1BuyQuantity`/`t2BuyQuantity`) |
 | `mortgageQuantity` | `number` | SL cầm cố |
 | `restrictedQuantity` | `number` | SL hạn chế chuyển nhượng |
 

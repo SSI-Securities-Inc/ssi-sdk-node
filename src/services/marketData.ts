@@ -16,21 +16,147 @@ import {
   SecuritiesInfo,
   SecuritiesSummary,
   MasterData,
+  ohlcFromList,
+  ohlcRequestToParams,
+  marketIndexesFromList,
+  marketIndexSummaryFromList,
+  securitiesInfoFromList,
+  securitiesSummaryFromList,
+  securitiesSummaryRequestToParams,
+  masterDataFromList,
+  masterDataRequestToParams,
 } from '../models/marketData.js';
 import { Board } from '../enums/marketData.js';
-import { Timeframe } from '../enums/timeframe.js';
-import { toFloat, toInt } from '../utils/converter.js';
-import { requireString } from '../utils/validator.js';
+import { Timeframe, ALLOWED_TIMEFRAMES } from '../enums/timeframe.js';
+import { APIError, ValidationError } from '../exceptions.js';
+import {
+  Dict,
+  fromValue,
+  isNoContent,
+  pick,
+  toInt,
+} from '../utils/converter.js';
+import {
+  parseDateArg,
+  requireDateRange,
+  requireExactlyOne,
+  requireNonEmpty,
+  requireSymbol,
+} from '../utils/validator.js';
+import { fromBeginningOfDay, fromEndOfDay, todayDateStr } from '../utils/datetime.js';
+
+/** Boards the REST data endpoints serve; DERIVATIVES exists only on the stream/master data. */
+const REST_BOARDS: readonly Board[] = [Board.HOSE, Board.HNX, Board.UPCOM];
+
+const WEEK_MONTH_REJECTED = (name: string): string =>
+  `The server does not support the ${name} timeframe (error 400210); ` +
+  'request 1d bars and aggregate them client-side instead';
 
 /**
- * Extract the `data` array from a REST response, tolerating a server quirk where
- * an empty result set comes back as `{}` instead of `[]` (would otherwise crash
- * `.map()` downstream).
+ * Rows of a bare-array endpoint. The server answers an empty result with HTTP 200 and
+ * `{"code": 204}` (an object, not `[]`), so that marker maps to an empty list.
  */
-function toDataArray(data: unknown): unknown[] {
-  const items = (data as { data: unknown })?.data;
-  return Array.isArray(items) ? items : [];
+function rows(data: unknown, what: string): Dict[] {
+  if (Array.isArray(data)) return data as Dict[];
+  if (isNoContent(data)) return [];
+  throw new APIError(`Unexpected response format while reading ${what}`, undefined, undefined, data);
 }
+
+/** The `data` rows of an enveloped endpoint (`{"data": [...], ...}`). */
+function dataRows(data: unknown, what: string): Dict[] {
+  if (isNoContent(data)) return [];
+  if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
+    const items = (data as Dict).data;
+    if (items === null || items === undefined) return [];
+    if (Array.isArray(items)) return items as Dict[];
+  }
+  throw new APIError(`Unexpected response format while reading ${what}`, undefined, undefined, data);
+}
+
+/** Total pages of a paginated response (`pagesCount`, falling back to `pageCount`). */
+function pagesCount(data: unknown): number {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return 1;
+  return toInt(pick(data as Dict, ['pagesCount', 'pageCount']), 1);
+}
+
+/** Validate a board for a REST data endpoint (HOSE/HNX/UPCOM only). */
+function restBoard(board: Board | string | undefined): Board | undefined {
+  if (board === undefined || board === null) return undefined;
+  const resolved = fromValue(Board, board);
+  if (resolved === undefined || !REST_BOARDS.includes(resolved)) {
+    throw new ValidationError(`board must be one of ${REST_BOARDS.join(', ')}, got '${String(board)}'`);
+  }
+  return resolved;
+}
+
+function checkTimeframe(timeframe: Timeframe | string): Timeframe {
+  const resolved = fromValue(Timeframe, timeframe);
+  if (resolved === undefined || !ALLOWED_TIMEFRAMES.has(resolved)) {
+    const allowed = [...ALLOWED_TIMEFRAMES].sort().join(', ');
+    throw new ValidationError(`timeframe ${String(timeframe)} is not supported; use one of ${allowed}`);
+  }
+  return resolved;
+}
+
+/** The server validates neither `pageIndex` nor `pageSize`; 0 or negative values give undefined results. */
+function requirePositiveInt(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new ValidationError(`${field} must be a positive integer, got ${String(value)}`);
+  }
+  return value;
+}
+
+function checkPaging(page: number, size: number): void {
+  requirePositiveInt(page, 'page');
+  requirePositiveInt(size, 'size');
+}
+
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/**
+ * Minute/hour bars: a `to` later than today makes the server answer nothing at all, so cut it to
+ * the end of today. Daily bars are not affected, and a range that starts in the future is left
+ * alone (it is empty anyway).
+ */
+function clampFutureEnd(timeframe: Timeframe, fromDate: string, toDate: string): string {
+  if (timeframe === Timeframe.DAY_1) return toDate;
+  const today = startOfDay(new Date());
+  const to = startOfDay(parseDateArg(toDate, 'to', { allowTime: true }));
+  const from = startOfDay(parseDateArg(fromDate, 'from', { allowTime: true }));
+  return to > today && today >= from ? fromEndOfDay() : toDate;
+}
+
+const DATE_ONLY = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
+
+/** `YYYY/MM/DD` -> `YYYY/MM/DD <time>`: the OHLC endpoint answers 400213 to a bare date. */
+function withTime(value: string, timeText: string): string {
+  const trimmed = value.trim();
+  return DATE_ONLY.test(trimmed) ? `${trimmed.replace(/-/g, '/')} ${timeText}` : value;
+}
+
+function buildOhlcParams(
+  symbol: string,
+  timeframeArg: Timeframe | string,
+  fromArg: string | undefined,
+  toArg: string | undefined,
+  page: number,
+  size: number,
+): Dict {
+  requireSymbol(symbol, 'symbol');
+  const timeframe = checkTimeframe(timeframeArg);
+  checkPaging(page, size);
+  let from = fromArg || fromBeginningOfDay();
+  let to = toArg || fromEndOfDay();
+  requireDateRange(from, to, { allowTime: true });
+  from = withTime(from, '00:00:00');
+  to = withTime(to, '23:59:59');
+  to = clampFutureEnd(timeframe, from, to);
+  return ohlcRequestToParams({ symbol, from, to, timeFrame: timeframe, pageIndex: page, pageSize: size });
+}
+
+type Historical = [symbol: string, from: string, to: string, page?: number, size?: number];
 
 export class MarketDataService {
   constructor(private readonly restClient: RestClient) {}
@@ -39,441 +165,343 @@ export class MarketDataService {
   // OHLC
   // ---------------------------------------------------------------------------
 
-  private async getOhlc(
+  private async fetchOhlc(
     symbol: string,
-    timeFrame: Timeframe,
+    timeframe: Timeframe | string,
     from?: string,
     to?: string,
     page = DEFAULT_PAGE,
     size = DEFAULT_SIZE,
   ): Promise<OHLCData[]> {
-    const now = new Date();
-    const today = formatDate(now);
-    const defaultFrom = today + ' 00:00:00';
-    const defaultTo = today + ' 23:59:59';
+    const params = buildOhlcParams(symbol, timeframe, from, to, page, size);
+    const data = await this.restClient.get(EP_DATA_OHLC, params);
+    return ohlcFromList(dataRows(data, 'OHLC'));
+  }
 
-    const params: Record<string, unknown> = {
-      symbol,
-      timeFrame,
-      from: from ?? defaultFrom,
-      to: to ?? defaultTo,
-      pageIndex: page,
-      pageSize: size,
-    };
+  private historical(timeframe: Timeframe, args: Historical): Promise<OHLCData[]> {
+    const [symbol, from, to, page, size] = args;
+    requireNonEmpty(from, 'fromDate');
+    requireNonEmpty(to, 'toDate');
+    return this.fetchOhlc(symbol, timeframe, from, to, page, size);
+  }
 
-    const data = await this.restClient.get<{ data: unknown[] }>(EP_DATA_OHLC, params);
-    const items = toDataArray(data);
-    return items.map(mapOhlc);
+  /**
+   * Iterate over every OHLC bar in a range, fetching page after page.
+   *
+   * The OHLC endpoint reports no page count, so paging stops at the first empty or short page.
+   * Bars arrive in server order: newest first.
+   *
+   * @param symbol - A single ticker symbol, e.g. "VNM".
+   * @param timeframe - Bar timeframe (1d, 1m, 3m, 5m, 15m or 1h).
+   * @param from - Range start; defaults to the start of today.
+   * @param to - Range end; defaults to the end of today.
+   * @param size - Bars requested per page (> 0).
+   */
+  async *iterOhlc(
+    symbol: string,
+    timeframe: Timeframe | string,
+    from?: string,
+    to?: string,
+    size = DEFAULT_SIZE,
+  ): AsyncGenerator<OHLCData, void, undefined> {
+    requirePositiveInt(size, 'size');
+    for (let page = DEFAULT_PAGE; ; page++) {
+      const bars = await this.fetchOhlc(symbol, timeframe, from, to, page, size);
+      for (const bar of bars) yield bar;
+      if (bars.length < size) return;
+    }
+  }
+
+  /** Fetch every OHLC bar in a range across all pages (newest first unless `ascending`). */
+  async getOhlcAll(
+    symbol: string,
+    timeframe: Timeframe | string,
+    from?: string,
+    to?: string,
+    size = DEFAULT_SIZE,
+    ascending = false,
+  ): Promise<OHLCData[]> {
+    const bars: OHLCData[] = [];
+    for await (const bar of this.iterOhlc(symbol, timeframe, from, to, size)) bars.push(bar);
+    return ascending ? bars.reverse() : bars;
   }
 
   getOhlc1Minute(symbol: string): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    return this.getOhlc(symbol, Timeframe.MINUTE_1);
+    return this.fetchOhlc(symbol, Timeframe.MINUTE_1);
   }
 
-  getOhlc1MinuteHistorical(
-    symbol: string, from: string, to: string, page?: number, size?: number,
-  ): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    return this.getOhlc(symbol, Timeframe.MINUTE_1, from, to, page, size);
+  getOhlc1MinuteHistorical(...args: Historical): Promise<OHLCData[]> {
+    return this.historical(Timeframe.MINUTE_1, args);
   }
 
   getOhlc3Minute(symbol: string): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    return this.getOhlc(symbol, Timeframe.MINUTE_3);
+    return this.fetchOhlc(symbol, Timeframe.MINUTE_3);
   }
 
-  getOhlc3MinuteHistorical(
-    symbol: string, from: string, to: string, page?: number, size?: number,
-  ): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    return this.getOhlc(symbol, Timeframe.MINUTE_3, from, to, page, size);
+  getOhlc3MinuteHistorical(...args: Historical): Promise<OHLCData[]> {
+    return this.historical(Timeframe.MINUTE_3, args);
   }
 
   getOhlc5Minute(symbol: string): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    return this.getOhlc(symbol, Timeframe.MINUTE_5);
+    return this.fetchOhlc(symbol, Timeframe.MINUTE_5);
   }
 
-  getOhlc5MinuteHistorical(
-    symbol: string, from: string, to: string, page?: number, size?: number,
-  ): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    return this.getOhlc(symbol, Timeframe.MINUTE_5, from, to, page, size);
+  getOhlc5MinuteHistorical(...args: Historical): Promise<OHLCData[]> {
+    return this.historical(Timeframe.MINUTE_5, args);
   }
 
   getOhlc15Minute(symbol: string): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    return this.getOhlc(symbol, Timeframe.MINUTE_15);
+    return this.fetchOhlc(symbol, Timeframe.MINUTE_15);
   }
 
-  getOhlc15MinuteHistorical(
-    symbol: string, from: string, to: string, page?: number, size?: number,
-  ): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    return this.getOhlc(symbol, Timeframe.MINUTE_15, from, to, page, size);
+  getOhlc15MinuteHistorical(...args: Historical): Promise<OHLCData[]> {
+    return this.historical(Timeframe.MINUTE_15, args);
   }
 
   getOhlc1Hour(symbol: string): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    return this.getOhlc(symbol, Timeframe.HOUR_1);
+    return this.fetchOhlc(symbol, Timeframe.HOUR_1);
   }
 
-  getOhlc1HourHistorical(
-    symbol: string, from: string, to: string, page?: number, size?: number,
-  ): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    return this.getOhlc(symbol, Timeframe.HOUR_1, from, to, page, size);
+  getOhlc1HourHistorical(...args: Historical): Promise<OHLCData[]> {
+    return this.historical(Timeframe.HOUR_1, args);
   }
 
-  getOhlc1DayHistorical(
-    symbol: string, from: string, to: string, page?: number, size?: number,
-  ): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    return this.getOhlc(symbol, Timeframe.DAY_1, from, to, page, size);
+  getOhlc1DayHistorical(...args: Historical): Promise<OHLCData[]> {
+    return this.historical(Timeframe.DAY_1, args);
   }
 
-  getOhlc1WeekHistorical(
-    symbol: string, from: string, to: string, page?: number, size?: number,
-  ): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    return this.getOhlc(symbol, Timeframe.WEEK_1, from, to, page, size);
+  /**
+   * @deprecated The server does not serve 1-week bars (error 400210). Always throws
+   * ValidationError; request 1-day bars and aggregate them client-side.
+   */
+  async getOhlc1WeekHistorical(...args: Historical): Promise<OHLCData[]> {
+    requireNonEmpty(args[1], 'fromDate');
+    requireNonEmpty(args[2], 'toDate');
+    throw new ValidationError(WEEK_MONTH_REJECTED('1w'));
   }
 
-  getOhlc1MonthHistorical(
-    symbol: string, from: string, to: string, page?: number, size?: number,
-  ): Promise<OHLCData[]> {
-    requireString(symbol, 'symbol');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    return this.getOhlc(symbol, Timeframe.MONTH_1, from, to, page, size);
+  /**
+   * @deprecated The server does not serve 1-month bars (error 400210). Always throws
+   * ValidationError; request 1-day bars and aggregate them client-side.
+   */
+  async getOhlc1MonthHistorical(...args: Historical): Promise<OHLCData[]> {
+    requireNonEmpty(args[1], 'fromDate');
+    requireNonEmpty(args[2], 'toDate');
+    throw new ValidationError(WEEK_MONTH_REJECTED('1M'));
+  }
+
+  /** Bulk download is not implemented: the server has no `data/file` endpoint yet. */
+  async downloadOhlc1Minute(_symbol: string): Promise<Dict> {
+    throw new Error('OHLC download is not implemented yet');
+  }
+
+  /** Bulk download is not implemented: the server has no `data/file` endpoint yet. */
+  async downloadOhlc1Day(_symbol: string): Promise<Dict> {
+    throw new Error('OHLC download is not implemented yet');
   }
 
   // ---------------------------------------------------------------------------
-  // Market Indexes
+  // Market indexes
   // ---------------------------------------------------------------------------
 
-  async getIndexes(): Promise<MarketIndexes[]> {
-    const data = await this.restClient.get<{ data: unknown[] }>(EP_DATA_INDEX_LIST);
-    return toDataArray(data).map(mapIndexes);
+  private async fetchIndexes(board?: Board | string): Promise<MarketIndexes[]> {
+    const resolved = restBoard(board);
+    const data = await this.restClient.get(EP_DATA_INDEX_LIST, resolved ? { board: resolved } : {});
+    return marketIndexesFromList(rows(data, 'indexes'));
   }
 
-  async getIndexesByBoard(board: Board): Promise<MarketIndexes[]> {
-    requireString(board, 'board');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_INDEX_LIST, { board },
-    );
-    return toDataArray(data).map(mapIndexes);
+  getIndexes(): Promise<MarketIndexes[]> {
+    return this.fetchIndexes();
   }
 
-  async getIndexSummary(index: string): Promise<MarketIndexSummary | null> {
-    requireString(index, 'index');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_INDEX_SUMMARY, { index },
-    );
-    const items = toDataArray(data);
-    return items.length > 0 ? mapIndexSummary(items[0]) : null;
+  getIndexesByBoard(board: Board | string): Promise<MarketIndexes[]> {
+    requireNonEmpty(board, 'board');
+    return this.fetchIndexes(board);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Index summary
+  // ---------------------------------------------------------------------------
+
+  private async fetchIndexSummary(
+    index?: string,
+    board?: Board | string,
+    tradingDate?: string,
+  ): Promise<MarketIndexSummary[]> {
+    const params: Dict = {};
+    if (index !== undefined) params.index = index;
+    const resolved = restBoard(board);
+    if (resolved !== undefined) params.board = resolved;
+    if (tradingDate !== undefined) params.tradingDate = tradingDate;
+    const data = await this.restClient.get(EP_DATA_INDEX_SUMMARY, params);
+    return marketIndexSummaryFromList(rows(data, 'index summary'));
+  }
+
+  async getIndexSummary(index: string): Promise<MarketIndexSummary | undefined> {
+    requireNonEmpty(index, 'index');
+    return (await this.fetchIndexSummary(index))[0];
   }
 
   async getIndexSummaryHistorical(
-    index: string, tradingDate: string,
-  ): Promise<MarketIndexSummary | null> {
-    requireString(index, 'index');
-    requireString(tradingDate, 'tradingDate');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_INDEX_SUMMARY, { index, tradingDate },
-    );
-    const items = toDataArray(data);
-    return items.length > 0 ? mapIndexSummary(items[0]) : null;
+    index: string,
+    tradingDate: string,
+  ): Promise<MarketIndexSummary | undefined> {
+    requireNonEmpty(index, 'index');
+    requireNonEmpty(tradingDate, 'tradingDate');
+    return (await this.fetchIndexSummary(index, undefined, tradingDate))[0];
   }
 
-  async getBoardSummary(board: Board): Promise<MarketIndexSummary | null> {
-    requireString(board, 'board');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_INDEX_SUMMARY, { board },
-    );
-    const items = toDataArray(data);
-    return items.length > 0 ? mapIndexSummary(items[0]) : null;
+  async getBoardSummary(board: Board | string): Promise<MarketIndexSummary | undefined> {
+    requireNonEmpty(board, 'board');
+    return (await this.fetchIndexSummary(undefined, board))[0];
   }
 
   async getBoardSummaryHistorical(
-    board: Board, tradingDate: string,
-  ): Promise<MarketIndexSummary | null> {
-    requireString(board, 'board');
-    requireString(tradingDate, 'tradingDate');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_INDEX_SUMMARY, { board, tradingDate },
-    );
-    const items = toDataArray(data);
-    return items.length > 0 ? mapIndexSummary(items[0]) : null;
+    board: Board | string,
+    tradingDate: string,
+  ): Promise<MarketIndexSummary | undefined> {
+    requireNonEmpty(board, 'board');
+    requireNonEmpty(tradingDate, 'tradingDate');
+    return (await this.fetchIndexSummary(undefined, board, tradingDate))[0];
   }
 
   // ---------------------------------------------------------------------------
-  // Securities Info
+  // Securities info
   // ---------------------------------------------------------------------------
 
-  async getSecuritiesInfo(symbol: string): Promise<SecuritiesInfo | null> {
-    requireString(symbol, 'symbol');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_SECURITIES_BY_BOARD, { symbol },
-    );
-    const items = toDataArray(data);
-    return items.length > 0 ? mapSecuritiesInfo(items[0]) : null;
+  private async fetchSecuritiesInfo(
+    index?: string,
+    board?: Board | string,
+    symbol?: string,
+  ): Promise<SecuritiesInfo[]> {
+    const params: Dict = {};
+    if (symbol !== undefined) params.symbol = symbol;
+    const resolved = restBoard(board);
+    if (resolved !== undefined) params.board = resolved;
+    if (index !== undefined) params.index = index;
+    const data = await this.restClient.get(EP_DATA_SECURITIES_BY_BOARD, params);
+    return securitiesInfoFromList(rows(data, 'securities info'));
   }
 
-  async getSecuritiesInfoByIndex(index: string): Promise<SecuritiesInfo[]> {
-    requireString(index, 'index');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_SECURITIES_BY_BOARD, { index },
-    );
-    return toDataArray(data).map(mapSecuritiesInfo);
+  async getSecuritiesInfo(symbol: string): Promise<SecuritiesInfo | undefined> {
+    requireNonEmpty(symbol, 'symbol');
+    return (await this.fetchSecuritiesInfo(undefined, undefined, symbol))[0];
   }
 
-  async getSecuritiesInfoByBoard(board: Board): Promise<SecuritiesInfo[]> {
-    requireString(board, 'board');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_SECURITIES_BY_BOARD, { board },
-    );
-    return toDataArray(data).map(mapSecuritiesInfo);
+  getSecuritiesInfoByIndex(index: string): Promise<SecuritiesInfo[]> {
+    requireNonEmpty(index, 'index');
+    return this.fetchSecuritiesInfo(index);
+  }
+
+  getSecuritiesInfoByBoard(board: Board | string): Promise<SecuritiesInfo[]> {
+    requireNonEmpty(board, 'board');
+    return this.fetchSecuritiesInfo(undefined, board);
   }
 
   // ---------------------------------------------------------------------------
-  // Securities Summary
+  // Securities summary
   // ---------------------------------------------------------------------------
 
-  async getSecuritiesSummary(
-    symbol: string, page = DEFAULT_PAGE, size = DEFAULT_SIZE,
+  private summaryParams(
+    from: string,
+    to: string,
+    symbol: string | undefined,
+    index: string | undefined,
+    page: number,
+    size: number,
+  ): Dict {
+    requireExactlyOne(symbol, index, 'symbol', 'index');
+    requireDateRange(from, to);
+    checkPaging(page, size);
+    return securitiesSummaryRequestToParams({ from, to, symbol, index, pageIndex: page, pageSize: size });
+  }
+
+  /** Fetch every page of the range (follows `pagesCount`, falling back to `pageCount`). */
+  private async fetchSecuritiesSummary(
+    from: string,
+    to: string,
+    symbol?: string,
+    index?: string,
+    size = DEFAULT_SIZE,
   ): Promise<SecuritiesSummary[]> {
-    requireString(symbol, 'symbol');
-    const today = todayDateStr();
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_SECURITIES_SUMMARY, { symbol, from: today, to: today, pageIndex: page, pageSize: size },
-    );
-    return toDataArray(data).map(mapSecuritiesSummary);
-  }
-
-  async getSecuritiesSummaryHistorical(
-    symbol: string, from: string, to: string, page = DEFAULT_PAGE, size = DEFAULT_SIZE,
-  ): Promise<SecuritiesSummary[]> {
-    requireString(symbol, 'symbol');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_SECURITIES_SUMMARY, { symbol, from, to, pageIndex: page, pageSize: size },
-    );
-    return toDataArray(data).map(mapSecuritiesSummary);
-  }
-
-  async getSecuritiesSummaryByIndex(
-    index: string, page = DEFAULT_PAGE, size = DEFAULT_SIZE,
-  ): Promise<SecuritiesSummary[]> {
-    requireString(index, 'index');
-    const today = todayDateStr();
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_SECURITIES_SUMMARY, { index, from: today, to: today, pageIndex: page, pageSize: size },
-    );
-    return toDataArray(data).map(mapSecuritiesSummary);
-  }
-
-  async getSecuritiesSummaryByIndexHistorical(
-    index: string, from: string, to: string, page = DEFAULT_PAGE, size = DEFAULT_SIZE,
-  ): Promise<SecuritiesSummary[]> {
-    requireString(index, 'index');
-    requireString(from, 'fromDate');
-    requireString(to, 'toDate');
-    const data = await this.restClient.get<{ data: unknown[] }>(
-      EP_DATA_SECURITIES_SUMMARY, { index, from, to, pageIndex: page, pageSize: size },
-    );
-    return toDataArray(data).map(mapSecuritiesSummary);
-  }
-
-  async getMasterData(): Promise<MasterData[]> {
-    const today = todayDateStr();
-    return this.getMasterDataHistorical(today, today);
-  }
-
-  async getMasterDataHistorical(from: string, to: string): Promise<MasterData[]> {
-    requireString(from, 'from');
-    requireString(to, 'to');
-    const items: MasterData[] = [];
     let page = DEFAULT_PAGE;
-    while (true) {
-      const params = {
-        From: from,
-        To: to,
-        pageIndex: page,
-        pageSize: DEFAULT_SIZE,
-      };
-      const data = await this.restClient.get<{ data: unknown[]; totalPage?: number }>(
-        EP_DATA_MASTER_DATA,
-        params,
-      );
-      const rawItems = (data as { data?: unknown[] }).data ?? [];
-      items.push(...rawItems.map(mapMasterData));
-      const totalPage = (data as { totalPage?: number }).totalPage ?? 1;
-      if (page >= totalPage || rawItems.length === 0) break;
+    let data = await this.restClient.get(
+      EP_DATA_SECURITIES_SUMMARY,
+      this.summaryParams(from, to, symbol, index, page, size),
+    );
+    const items = securitiesSummaryFromList(dataRows(data, 'securities summary'));
+    const pages = pagesCount(data);
+    while (page < pages && items.length > 0) {
       page++;
+      data = await this.restClient.get(
+        EP_DATA_SECURITIES_SUMMARY,
+        this.summaryParams(from, to, symbol, index, page, size),
+      );
+      const more = securitiesSummaryFromList(dataRows(data, 'securities summary'));
+      if (more.length === 0) break;
+      items.push(...more);
     }
     return items;
   }
 
-  async downloadOhlc1Minute(symbol: string): Promise<Record<string, unknown>> {
-    requireString(symbol, 'symbol');
-    throw new Error('OHLC download is not implemented yet');
+  getSecuritiesSummary(symbol: string): Promise<SecuritiesSummary[]> {
+    requireNonEmpty(symbol, 'symbol');
+    const today = todayDateStr();
+    return this.fetchSecuritiesSummary(today, today, symbol);
   }
 
-  async downloadOhlc1Day(symbol: string): Promise<Record<string, unknown>> {
-    requireString(symbol, 'symbol');
-    throw new Error('OHLC download is not implemented yet');
+  getSecuritiesSummaryHistorical(symbol: string, from: string, to: string): Promise<SecuritiesSummary[]> {
+    requireNonEmpty(symbol, 'symbol');
+    requireNonEmpty(from, 'fromDate');
+    requireNonEmpty(to, 'toDate');
+    return this.fetchSecuritiesSummary(from, to, symbol);
   }
-}
 
+  getSecuritiesSummaryByIndex(index: string): Promise<SecuritiesSummary[]> {
+    requireNonEmpty(index, 'index');
+    const today = todayDateStr();
+    return this.fetchSecuritiesSummary(today, today, undefined, index);
+  }
 
-function todayDateStr(): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}/${mm}/${dd}`;
-}
+  getSecuritiesSummaryByIndexHistorical(
+    index: string,
+    from: string,
+    to: string,
+  ): Promise<SecuritiesSummary[]> {
+    requireNonEmpty(index, 'index');
+    requireNonEmpty(from, 'fromDate');
+    requireNonEmpty(to, 'toDate');
+    return this.fetchSecuritiesSummary(from, to, undefined, index);
+  }
 
-// ---------------------------------------------------------------------------
-// Mappers
-// ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Master data
+  // ---------------------------------------------------------------------------
 
-function mapOhlc(raw: unknown): OHLCData {
-  const r = raw as Record<string, unknown>;
-  return {
-    symbol: String(r['symbol'] ?? ''),
-    tradingDate: String(r['tradingDate'] ?? ''),
-    openPrice: toFloat(r['open']),
-    highPrice: toFloat(r['high']),
-    lowPrice: toFloat(r['low']),
-    closePrice: toFloat(r['close']),
-    volume: toInt(r['volume']),
-    value: toFloat(r['value']),
-  };
-}
+  private async fetchMasterData(from: string, to: string): Promise<MasterData[]> {
+    const items: MasterData[] = [];
+    for (let page = DEFAULT_PAGE; ; page++) {
+      requireDateRange(from, to);
+      checkPaging(page, DEFAULT_SIZE);
+      const data = await this.restClient.get(
+        EP_DATA_MASTER_DATA,
+        masterDataRequestToParams({ from, to, pageIndex: page, pageSize: DEFAULT_SIZE }),
+      );
+      items.push(...masterDataFromList(dataRows(data, 'master data')));
+      if (page >= pagesCount(data)) break;
+    }
+    return items;
+  }
 
-function mapIndexes(raw: unknown): MarketIndexes {
-  const r = raw as Record<string, unknown>;
-  return {
-    index: String(r['index'] ?? ''),
-    indexName: String(r['indexName'] ?? ''),
-    board: (r['board'] as Board) ?? null,
-  };
-}
+  /** Today's reference prices (ceiling/floor/reference); every page is fetched. */
+  getMasterData(): Promise<MasterData[]> {
+    const today = todayDateStr();
+    return this.fetchMasterData(today, today);
+  }
 
-function mapIndexSummary(raw: unknown): MarketIndexSummary {
-  const r = raw as Record<string, unknown>;
-  return {
-    tradingDate: String(r['tradingDate'] ?? ''),
-    totalTrade: toFloat(r['totalTrade']),
-    totalTradeValue: toFloat(r['totalTradeValue']),
-    totalMatch: toFloat(r['totalMatch']),
-    totalMatchValue: toFloat(r['totalMatchValue']),
-    totalDeal: toFloat(r['totalDeal']),
-    totalDealValue: toFloat(r['totalDealValue']),
-    indexChange: toFloat(r['indexChange']),
-    indexChangePercent: toFloat(r['indexChangePercentage']),
-    indexValue: toFloat(r['indexValue']),
-    totalAdvanceStock: toInt(r['totalAdvanceStock']),
-    totalDeclineStock: toInt(r['totalDeclineStock']),
-    totalSteadyStock: toInt(r['totalNoChangeStock']),
-    totalCeilingStock: toInt(r['totalCeilingStock'] ?? r['totalCeiLingStock']),
-    totalFloorStock: toInt(r['totalFloorStock']),
-    totalPropBuy: toFloat(r['totalPropBuy']),
-    totalPropBuyValue: toFloat(r['totalPropBuyValue']),
-    totalPropSell: toFloat(r['totalPropSell']),
-    totalPropSellValue: toFloat(r['totalPropSellValue']),
-  };
-}
-
-function mapSecuritiesInfo(raw: unknown): SecuritiesInfo {
-  const r = raw as Record<string, unknown>;
-  return {
-    symbol: String(r['symbol'] ?? ''),
-    board: (r['board'] as Board) ?? null,
-    index: String(r['index'] ?? ''),
-    symbolNameVi: String(r['symbolNameVi'] ?? ''),
-    symbolNameEn: String(r['symbolNameEn'] ?? ''),
-    lotSize: toInt(r['lotSize']),
-    maturityDate: (r['maturityDate'] as string) ?? null,
-    firstTradingDate: (r['firstTradingDate'] as string) ?? null,
-    lastTradingDate: (r['lastTradingDate'] as string) ?? null,
-    cwUnderlyingSymbol: (r['cwUnderlyingSymbol'] as string) ?? null,
-    cwExercisePrice: r['cwExercisePrice'] != null ? toFloat(r['cwExercisePrice']) : null,
-    cwExecutionRatio: r['cwExecutionRatio'] != null ? toFloat(r['cwExecutionRatio']) : null,
-    listedShares: toFloat(r['listedShare']),
-    icbCode: (r['icbCode'] as string) ?? null,
-    icbName: (r['icbName'] as string) ?? null,
-    iIndex: r['iIndex'] != null ? toFloat(r['iIndex']) : null,
-    iNav: r['iNav'] != null ? toFloat(r['iNav']) : null,
-    openInterest: r['openInterest'] != null ? toFloat(r['openInterest']) : null,
-    settlementPrice: r['settlementPrice'] != null ? toFloat(r['settlementPrice']) : null,
-  };
-}
-
-function mapSecuritiesSummary(raw: unknown): SecuritiesSummary {
-  const r = raw as Record<string, unknown>;
-  return {
-    symbol: String(r['symbol'] ?? ''),
-    tradingDate: String(r['tradingDate'] ?? ''),
-    priceChange: toFloat(r['priceChange']),
-    priceChangePercent: toFloat(r['priceChangePercentage']),
-    openPrice: toFloat(r['open']),
-    highPrice: toFloat(r['high']),
-    lowPrice: toFloat(r['low']),
-    closePrice: toFloat(r['close']),
-    averagePrice: toFloat(r['average']),
-    totalMatch: toFloat(r['totalMatch']),
-    totalMatchValue: toFloat(r['totalMatchValue']),
-    totalBuy: toFloat(r['totalBuy']),
-    totalTradeBuy: toFloat(r['totalTradeBuy']),
-    totalSell: toFloat(r['totalSell']),
-    totalTradeSell: toFloat(r['totalTradeSell']),
-    totalForeignBuy: toFloat(r['totalForeignBuy']),
-    totalForeignBuyValue: toFloat(r['totalForeignBuyValue']),
-    totalForeignSell: toFloat(r['totalForeignSell']),
-    totalForeignSellValue: toFloat(r['totalForeignSellValue']),
-    remainForeignRoom: toFloat(r['remainForeignRoom']),
-    totalForeignRoom: toFloat(r['totalForeignRoom']),
-    totalDeal: toFloat(r['totalDeal']),
-    totalDealValue: toFloat(r['totalDealValue']),
-    openInterest: toFloat(r['openInterest']),
-    settlementPrice: toFloat(r['settlementPrice']),
-  };
-}
-
-function mapMasterData(raw: unknown): MasterData {
-  const r = raw as Record<string, unknown>;
-  return {
-    board: (r['board'] as Board) ?? null,
-    symbol: String(r['symbol'] ?? ''),
-    tradingDate: String(r['tradingDate'] ?? ''),
-    ceiling: toFloat(r['ceiling']),
-    floor: toFloat(r['floor']),
-    refPrice: toFloat(r['refPrice'] ?? r['referencePrice']),
-  };
-}
-
-function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}/${m}/${day}`;
+  getMasterDataHistorical(from: string, to: string): Promise<MasterData[]> {
+    requireNonEmpty(from, 'fromDate');
+    requireNonEmpty(to, 'toDate');
+    return this.fetchMasterData(from, to);
+  }
 }

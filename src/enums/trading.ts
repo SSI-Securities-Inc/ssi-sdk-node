@@ -29,4 +29,10 @@ export enum OrderStatus {
   REJECTED = 'RJ',
   EXPIRED = 'EX',
   PRE_SESSION = 'IAV',
+  // Reported by the order/FCO engines; named after their codes.
+  SOI = 'SOI',
+  PAS = 'PAS',
+  CPL = 'CPL',
+  REQUESTED = 'RQ',
+  ERROR = 'ERR',
 }

@@ -22,6 +22,7 @@ export enum DataTopic {
   TRADE = 'trade.',
   ODD_LOT = 'oddlot.',
   MARKET = 'market.',
+  INDEX_SUMMARY = 'indexsummary.',
   ROOM = 'room.',
   PUT = 'put.',
 }
@@ -33,4 +34,5 @@ export enum DataType {
   MARKET = 'market',
   ROOM = 'room',
   PUT = 'put',
+  INDEX_SUMMARY = 'indexsummary',
 }

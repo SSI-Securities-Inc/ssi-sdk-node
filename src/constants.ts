@@ -45,7 +45,7 @@ export const DEFAULT_STREAMING_URL = 'wss://stream.ssi.com.vn/ws/v3';
 // Paths served by the trading API (orders, FCO, account, portfolio). They go to
 // Config.tradingApiUrl, which is apiUrl unless tradingApiDomain is set.
 export const TRADING_API_PATH_PREFIXES: readonly string[] = ['/api/v3/trading', '/api/v3/account'];
-// Trading WebSocket (experimental; nothing in the facade clients connects to it).
+// Trading WebSocket (nothing in the facade clients connects to it; open it with asyncTradingWs).
 export const TRADING_WS_PATH = '/ws/v3/trading';
 export const DEFAULT_TRADING_WS_DOMAIN = 'wss://api.ssi.com.vn' + TRADING_WS_PATH;
 // While Config.tradingApiDomain stays at this default it follows apiUrl.
@@ -90,6 +90,13 @@ export const EP_DATA_INDEX_SUMMARY = '/api/v3/data/indexSummary';
 export const EP_DATA_SECURITIES_BY_BOARD = '/api/v3/data/securitiesByBoard';
 export const EP_DATA_SECURITIES_SUMMARY = '/api/v3/data/securitiesSummary';
 export const EP_DATA_MASTER_DATA = '/api/v3/data/masterdata';
+export const EP_DATA_CORPORATE_ACTIONS = '/api/v3/data/corporateActions';
+
+// corporateActions: the span of one request is capped at 5 days, pageSize must be one of these,
+// language is vn or en.
+export const CORPORATE_ACTIONS_MAX_DAYS = 5;
+export const CORPORATE_ACTIONS_PAGE_SIZES: readonly number[] = [10, 20, 50, 100];
+export const CORPORATE_ACTIONS_LANGUAGES: readonly string[] = ['vn', 'en'];
 
 // ---------------------------------------------------------------------------
 // API Endpoints — Trading

@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Main client classes
 // ---------------------------------------------------------------------------
-export { Auth, Data, Trading, Stream } from './client.js';
+export { Auth, Data, Trading, Stream, asyncTradingWs, tradingWs } from './client.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -66,6 +66,7 @@ export {
   TradingService,
   PortfolioService,
   StreamingService,
+  TradingWSService,
   classifyDataMessage,
   classifyTradingMessage,
   parseDataMessage,
@@ -79,18 +80,30 @@ export type {
   ConnectionCallback,
   DataKind,
   TradingKind,
+  FcoParamsKind,
+  FcoListOptions,
+  OrderBookQuery,
 } from './services/index.js';
 
 // ---------------------------------------------------------------------------
 // Transport (advanced use)
 // ---------------------------------------------------------------------------
-export { RestClient, WebSocketClient } from './transport/index.js';
+export {
+  RestClient,
+  WebSocketClient,
+  TradingWSClient,
+  MUTATING_METHODS,
+  buildCommand,
+  unwrap,
+} from './transport/index.js';
 export type {
   MessageHandler,
   TokenProvider,
   WebSocketClientOptions,
   ConnectionEvent,
   ConnectionState,
+  TradingWSResponse,
+  TradingWSClientOptions,
 } from './transport/index.js';
 
 // ---------------------------------------------------------------------------

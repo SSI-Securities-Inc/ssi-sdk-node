@@ -3,6 +3,8 @@ export { AccountService } from './account.js';
 export { MarketDataService } from './marketData.js';
 export { TradingService } from './trading.js';
 export { PortfolioService } from './portfolio.js';
+export { TradingWSService } from './tradingWs.js';
+export type { FcoParamsKind, FcoListOptions, OrderBookQuery } from './tradingWs.js';
 export {
   StreamingService,
   classifyDataMessage,

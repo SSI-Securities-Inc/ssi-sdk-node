@@ -30,7 +30,7 @@ export interface ConfigOptions {
    */
   tradingApiDomain?: string;
   /**
-   * URL of the experimental trading WebSocket (default `wss://api.ssi.com.vn/ws/v3/trading`).
+   * URL of the trading WebSocket (default `wss://api.ssi.com.vn/ws/v3/trading`).
    * A bare `host[:port]` gets `wss://` and `/ws/v3/trading`; a URL without a path gets the path.
    */
   tradingWsDomain?: string;

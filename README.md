@@ -21,7 +21,7 @@ Node.js/TypeScript SDK cho nền tảng giao dịch chứng khoán SSI. Hỗ tr�
 - [Streaming realtime](#6-streaming-realtime)
 - [Xử lý lỗi](#7-xử-lý-lỗi)
 - [Cấu hình nâng cao](#8-cấu-hình-nâng-cao)
-- [Trading WebSocket (thử nghiệm)](#9-trading-websocket-thử-nghiệm)
+- [Trading WebSocket](#9-trading-websocket)
 - [Tài liệu liên quan](#tài-liệu-liên-quan)
 
 ---
@@ -68,7 +68,7 @@ const config = new Config({
 | `retryDelayMs` | `number` | `2000` | Delay cơ sở giữa các lần retry (exponential backoff, millisecond) |
 | `rateLimitPerSecond` | `number` | `10` | Giới hạn request/giây (0 = không giới hạn). SDK còn theo header `X-RateLimit-*` của server |
 | `tradingApiDomain` | `string` | `"https://api.ssi.com.vn"` | URL REST giao dịch. Còn mặc định thì đi theo `apiUrl`; getter `tradingApiUrl` |
-| `tradingWsDomain` | `string` | `"wss://api.ssi.com.vn/ws/v3/trading"` | URL trading WebSocket (thử nghiệm); getter `tradingWsUrl` |
+| `tradingWsDomain` | `string` | `"wss://api.ssi.com.vn/ws/v3/trading"` | URL trading WebSocket; getter `tradingWsUrl` |
 | `maxBatchOrders` | `number` | `20` | Số lệnh tối đa cho một batch (`placeBatchOrders` / `cancelBatchOrders`) |
 | `userAgent` | `string` | *(UA trình duyệt)* | User-Agent cho HTTP, WebSocket và payload lệnh |
 | `autoReconnect` | `boolean` | `true` | Tự kết nối lại streaming khi rớt |
@@ -313,6 +313,8 @@ Truy cập qua `data.marketData` (client `Data`).
 | | `getSecuritiesSummaryByIndexHistorical(index, from, to)` | Summary chỉ số lịch sử |
 | **Master Data** | `getMasterData()` | Giá trần/sàn/tham chiếu tất cả mã hôm nay |
 | | `getMasterDataHistorical(from, to)` | Giá trần/sàn/tham chiếu tất cả mã trong khoảng ngày |
+| **Corporate Actions** | `getCorporateActions(symbol?, language = "vn")` | Sự kiện quyền (cổ tức, thưởng, phát hành...) hôm nay |
+| | `getCorporateActionsHistorical(from, to, symbol?, language = "vn")` | Sự kiện quyền trong khoảng ngày (tối đa 5 ngày) |
 
 ### 3.1. Dữ liệu OHLC (nến)
 
@@ -465,6 +467,32 @@ for (const item of result) {
 ```
 
 **Trả về:** `Promise<MasterData[]>` — mỗi `MasterData` có: `board`, `symbol`, `tradingDate`, `ceiling`, `floor`, `refPrice`.
+
+### 3.7. Corporate Actions (sự kiện quyền)
+
+`GET /api/v3/data/corporateActions`. SDK tự gọi hết các trang (pageSize 100). Hai method tách theo thời điểm:
+
+```typescript
+// Hôm nay (mọi mã, hoặc 1 mã)
+const today = await data.marketData.getCorporateActions();
+const gda = await data.marketData.getCorporateActions("GDA", "en");
+
+// Quá khứ: khoảng ngày tối đa 5 ngày
+const past = await data.marketData.getCorporateActionsHistorical(
+  "2026/10/08",
+  "2026/10/12",
+  undefined, // undefined = tất cả mã
+  "vn"       // "vn" (mặc định) hoặc "en"
+);
+for (const e of past) {
+  console.log(e.symbol, e.eventTitle, e.exrightDate, e.recordDate, e.issueDate, e.exchange, e.ratio);
+}
+```
+
+**Trả về:** `Promise<CorporateAction[]>` — `symbol`, `eventTitle`, `exrightDate`, `recordDate`, `issueDate`, `exchange`, `ratio`.
+Tất cả là `string` đúng như server trả (ngày `YYYY/MM/DD`, `ratio` không ép kiểu); sự kiện mới công bố có thể có `exrightDate` / `ratio` rỗng `""`.
+SDK kiểm tra trước khi gọi: ngày đúng `YYYY/MM/DD`, `from <= to`, khoảng tối đa 5 ngày, `symbol` chữ-số tối đa 20 ký tự, `language` là `vn`/`en`
+(sai thì `ValidationError`, không gọi mạng).
 
 ---
 
@@ -901,7 +929,7 @@ try {
 | `SmartOTPRejectedError` | Smart OTP không thể thành công nữa (bị từ chối, hết hạn hoặc transaction không tồn tại); con của `AuthenticationError` |
 | `ReauthenticationRequired` | Không refresh được phiên, cần OTP mới; con của `AuthenticationError` |
 | `DuplicateRequestError` | HTTP 409: `clientRequestId`/`batchRequestId` đã dùng trong ngày; con của `APIError`. Lệnh gốc có thể vẫn đang sống, SDK không tự gửi lại với id khác |
-| `TradingWSError` | Lỗi của trading WebSocket thử nghiệm (con của `WebSocketError`) |
+| `TradingWSError` | Lỗi của trading WebSocket (con của `WebSocketError`) |
 
 `APIError.code` là mã lỗi của server khi body có mã (HTTP status nằm ở `statusCode`); enum `ServerErrorCode` liệt kê các mã này. `responseBody` đã được che thông tin nhạy cảm, nhưng đừng hiển thị nó cho người dùng cuối.
 
@@ -929,12 +957,12 @@ const auth = new Auth({
 
 ---
 
-## 9. Trading WebSocket (thử nghiệm)
+## 9. Trading WebSocket
 
-Đặt lệnh và truy vấn qua WebSocket giao dịch (`/ws/v3/trading`). **EXPERIMENTAL**: chỉ dùng với môi trường đã được thông báo hỗ trợ. Không nằm trong entry chính và `Trading`/`Stream` không dùng đến nó. Import từ entry riêng:
+Đặt lệnh và truy vấn qua WebSocket giao dịch (`/ws/v3/trading`). `Trading`/`Stream` không tự kết nối tới nó: bạn phải gọi `asyncTradingWs(auth)` một cách tường minh. Import từ entry chính:
 
 ```typescript
-import { asyncTradingWs } from '@ssi.developer/ssi-sdk/experimental';
+import { asyncTradingWs } from '@ssi.developer/ssi-sdk';
 
 await auth.ensureAuthenticated(process.env.SSI_OTP);
 const ws = await asyncTradingWs(auth);   // kết nối tới Config.tradingWsUrl (wss://)

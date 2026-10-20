@@ -349,3 +349,64 @@ export function masterDataFromList(data: Dict[]): MasterData[] {
     refPrice: toNumber(item.refPrice),
   }));
 }
+
+// ---------------------------------------------------------------------------
+// Corporate actions
+// ---------------------------------------------------------------------------
+export interface CorporateActionsRequest {
+  /** Start date `YYYY/MM/DD`. */
+  from: string;
+  /** End date `YYYY/MM/DD` (at most 5 days after `from`). */
+  to: string;
+  /** Ticker symbol; undefined asks for every security. */
+  symbol?: string;
+  /** `"vn"` (default) or `"en"`. */
+  language?: string;
+  pageIndex?: number;
+  /** The server accepts 10, 20, 50 or 100. */
+  pageSize?: number;
+}
+
+/** Query params for the endpoint (`symbol` only when set). */
+export function corporateActionsRequestToParams(req: CorporateActionsRequest): Dict {
+  const params: Dict = {
+    from: req.from,
+    to: req.to,
+    language: req.language ?? 'vn',
+    pageIndex: req.pageIndex ?? DEFAULT_PAGE,
+    pageSize: req.pageSize ?? 100,
+  };
+  if (req.symbol !== undefined) params.symbol = req.symbol;
+  return params;
+}
+
+/**
+ * One corporate action (dividend, bonus shares, rights issue, ...) of a security.
+ *
+ * Every field is the string the server sends: dates stay `YYYY/MM/DD` text and `ratio` is not
+ * parsed, because its meaning depends on the event type. A field the server leaves blank
+ * (a newly announced event has no ex-right date or ratio yet) is `""`.
+ */
+export interface CorporateAction {
+  symbol: string;
+  eventTitle: string;
+  exrightDate: string;
+  recordDate: string;
+  issueDate: string;
+  /** Exchange code, e.g. `"HOSE"`. */
+  exchange: string;
+  /** Event ratio as text, e.g. `"0.9388"`. */
+  ratio: string;
+}
+
+export function corporateActionsFromList(data: Dict[]): CorporateAction[] {
+  return data.map((item) => ({
+    symbol: text(item.symbol),
+    eventTitle: text(item.eventTitle),
+    exrightDate: text(item.exrightDate),
+    recordDate: text(item.recordDate),
+    issueDate: text(item.issueDate),
+    exchange: text(item.exchange),
+    ratio: text(item.ratio),
+  }));
+}

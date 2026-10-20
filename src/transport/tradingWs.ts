@@ -1,6 +1,5 @@
 /**
- * EXPERIMENTAL client for the trading WebSocket (`/ws/v3/trading`). Not exported from the main
- * entry point: import it from `@ssi.developer/ssi-sdk/experimental`.
+ * Client for the trading WebSocket (`/ws/v3/trading`). Open it with `asyncTradingWs(auth)`.
  *
  * - A command that times out is never retried: it may already have been accepted. Reconcile via
  *   the `order.<account>` event stream or `query.orderBook`.

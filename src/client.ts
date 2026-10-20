@@ -7,6 +7,8 @@ import { MarketDataService } from './services/marketData.js';
 import { TradingService } from './services/trading.js';
 import { PortfolioService } from './services/portfolio.js';
 import { StreamingService } from './services/streaming.js';
+import { TradingWSService } from './services/tradingWs.js';
+import { TradingWSClient, TradingWSClientOptions } from './transport/tradingWs.js';
 import { Token, TokenInit, OTPResponse } from './models/auth.js';
 
 /**
@@ -167,3 +169,50 @@ export class Stream {
     return this.streaming.disconnect();
   }
 }
+
+// ---------------------------------------------------------------------------
+// Trading WebSocket (order entry over `/ws/v3/trading`; explicit opt-in call)
+// ---------------------------------------------------------------------------
+
+/** Caller options win key by key; an explicit `undefined` falls back to the `Config` value. */
+function withDefaults(
+  config: { timeoutMs: number; userAgent?: string },
+  options: TradingWSClientOptions,
+): TradingWSClientOptions {
+  const merged: TradingWSClientOptions = { ...options };
+  if (merged.requestTimeoutMs === undefined) merged.requestTimeoutMs = config.timeoutMs;
+  if (merged.userAgent === undefined) merged.userAgent = config.userAgent;
+  return merged;
+}
+
+/**
+ * Open the trading WebSocket for an authenticated `Auth` and return the service. `Trading` and
+ * `Stream` never connect to it; call this explicitly.
+ *
+ * ```ts
+ * const auth = new Auth(config);
+ * await auth.ensureAuthenticated('123456');
+ * const ws = await asyncTradingWs(auth);   // connects to Config.tradingWsUrl
+ * const ack = await ws.placeOrder(...);    // PD ack; the outcome comes via order events
+ * await ws.close();
+ * ```
+ *
+ * @param options - Transport tunables (timeouts, signature encoding, ping); `requestTimeoutMs`
+ *   and `userAgent` default to the `Config` values.
+ */
+export async function asyncTradingWs(
+  auth: Auth,
+  options: TradingWSClientOptions = {},
+): Promise<TradingWSService> {
+  const config = auth.config;
+  const client = new TradingWSClient(
+    config.tradingWsUrl,
+    () => auth.ensureAuthenticated(),
+    config.privateKey,
+    withDefaults(config, options),
+  );
+  await client.connect();
+  return new TradingWSService(client, config);
+}
+
+export { asyncTradingWs as tradingWs };

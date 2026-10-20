@@ -11,6 +11,26 @@ Renamed members keep their old name as a deprecated alias, except the duration o
 Units: every duration the SDK defines is **milliseconds** and its name ends in `Ms`; `Token.expiresAt` is epoch
 **seconds** (it is the server value).
 
+## 3.3.2 - 2026-10-20
+
+### Added
+- Corporate actions (`GET /api/v3/data/corporateActions`) as two `MarketDataService` methods: `getCorporateActions(symbol?, language = 'vn')` for today and
+  `getCorporateActionsHistorical(from, to, symbol?, language = 'vn')` for a past range (the server allows at most 5 days per request).
+  Both fetch every page and return `CorporateAction[]` (`symbol`, `eventTitle`, `exrightDate`, `recordDate`, `issueDate`, `exchange`, `ratio`, all
+  strings as the server sends them). Checked on the client before any call: date format, `from <= to`, 5-day span, symbol, language.
+  Covered by unit tests with a mocked HTTP adapter; the endpoint has not been run against the live server yet.
+
+### Changed
+- **BREAKING: Trading WebSocket is no longer experimental.** It is now part of the main public API and is exported from the package root.
+  Old import: `@ssi.developer/ssi-sdk/experimental`. New import: `@ssi.developer/ssi-sdk`. The old `./experimental` sub-path was removed
+  without an alias or deprecated re-export, so existing imports of it fail until you change them. Names, signatures, defaults (including
+  `tradingWsDomain` / `tradingWsUrl`) and behaviour are unchanged, and `Trading`/`Stream` still never connect to it on their own.
+  ```ts
+  // before: import { asyncTradingWs } from '@ssi.developer/ssi-sdk/experimental';
+  import { Auth, asyncTradingWs } from '@ssi.developer/ssi-sdk';
+  const ws = await asyncTradingWs(auth);   // also exported: tradingWs, TradingWSClient, TradingWSService, TradingWSError
+  ```
+
 ## 3.3.0 - 2026-10-08
 
 ### Security

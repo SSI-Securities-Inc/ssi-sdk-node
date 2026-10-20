@@ -6,6 +6,10 @@ import {
   EP_DATA_SECURITIES_BY_BOARD,
   EP_DATA_SECURITIES_SUMMARY,
   EP_DATA_MASTER_DATA,
+  EP_DATA_CORPORATE_ACTIONS,
+  CORPORATE_ACTIONS_LANGUAGES,
+  CORPORATE_ACTIONS_MAX_DAYS,
+  CORPORATE_ACTIONS_PAGE_SIZES,
   DEFAULT_PAGE,
   DEFAULT_SIZE,
 } from '../constants.js';
@@ -16,6 +20,7 @@ import {
   SecuritiesInfo,
   SecuritiesSummary,
   MasterData,
+  CorporateAction,
   ohlcFromList,
   ohlcRequestToParams,
   marketIndexesFromList,
@@ -25,6 +30,8 @@ import {
   securitiesSummaryRequestToParams,
   masterDataFromList,
   masterDataRequestToParams,
+  corporateActionsFromList,
+  corporateActionsRequestToParams,
 } from '../models/marketData.js';
 import { Board } from '../enums/marketData.js';
 import { Timeframe, ALLOWED_TIMEFRAMES } from '../enums/timeframe.js';
@@ -105,6 +112,9 @@ function requirePositiveInt(value: unknown, field: string): number {
   }
   return value;
 }
+
+/** Max length of the corporateActions `symbol` filter, as the server documents it. */
+const CORPORATE_ACTIONS_SYMBOL_MAX_LENGTH = 20;
 
 function checkPaging(page: number, size: number): void {
   requirePositiveInt(page, 'page');
@@ -503,5 +513,82 @@ export class MarketDataService {
     requireNonEmpty(from, 'fromDate');
     requireNonEmpty(to, 'toDate');
     return this.fetchMasterData(from, to);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Corporate actions
+  // ---------------------------------------------------------------------------
+
+  /** Validate and build the query params (limits as the server documents them). */
+  private corporateActionsParams(
+    from: string,
+    to: string,
+    symbol: string | undefined,
+    language: string,
+    page: number,
+    size: number,
+  ): Dict {
+    requireDateRange(from, to, { maxDays: CORPORATE_ACTIONS_MAX_DAYS });
+    if (symbol !== undefined && symbol !== null) {
+      requireSymbol(symbol);
+      if (symbol.length > CORPORATE_ACTIONS_SYMBOL_MAX_LENGTH) {
+        throw new ValidationError(
+          `symbol must be at most ${CORPORATE_ACTIONS_SYMBOL_MAX_LENGTH} characters, got ${symbol.length}`,
+        );
+      }
+    }
+    const lang = typeof language === 'string' ? language.trim().toLowerCase() : language;
+    if (!CORPORATE_ACTIONS_LANGUAGES.includes(lang)) {
+      throw new ValidationError(
+        `language must be one of ${CORPORATE_ACTIONS_LANGUAGES.join(', ')}, got '${String(language)}'`,
+      );
+    }
+    requirePositiveInt(page, 'page');
+    if (!CORPORATE_ACTIONS_PAGE_SIZES.includes(size)) {
+      throw new ValidationError(
+        `size must be one of ${CORPORATE_ACTIONS_PAGE_SIZES.join(', ')}, got ${String(size)}`,
+      );
+    }
+    return corporateActionsRequestToParams({
+      from,
+      to,
+      symbol: symbol ?? undefined,
+      language: lang,
+      pageIndex: page,
+      pageSize: size,
+    });
+  }
+
+  private async fetchCorporateActions(
+    from: string,
+    to: string,
+    symbol: string | undefined,
+    language: string,
+  ): Promise<CorporateAction[]> {
+    const size = Math.max(...CORPORATE_ACTIONS_PAGE_SIZES);
+    const items: CorporateAction[] = [];
+    for (let page = DEFAULT_PAGE; ; page++) {
+      const params = this.corporateActionsParams(from, to, symbol, language, page, size);
+      const data = await this.restClient.get(EP_DATA_CORPORATE_ACTIONS, params);
+      items.push(...corporateActionsFromList(dataRows(data, 'corporate actions')));
+      if (page >= pagesCount(data)) break;
+    }
+    return items;
+  }
+
+  /** Today's corporate actions (dividends, bonus shares, rights issues, ...); every page is fetched. */
+  getCorporateActions(symbol?: string, language = 'vn'): Promise<CorporateAction[]> {
+    const today = todayDateStr();
+    return this.fetchCorporateActions(today, today, symbol, language);
+  }
+
+  /** Corporate actions in a past date range (at most 5 days per request); every page is fetched. */
+  getCorporateActionsHistorical(
+    from: string,
+    to: string,
+    symbol?: string,
+    language = 'vn',
+  ): Promise<CorporateAction[]> {
+    return this.fetchCorporateActions(from, to, symbol, language);
   }
 }

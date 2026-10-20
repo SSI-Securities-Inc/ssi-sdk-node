@@ -81,7 +81,7 @@ import {
   requireNonNegative,
 } from '../utils/validator.js';
 
-// ── shared logic (also used by the experimental trading WebSocket) ──────────────────────────
+// ── shared logic (also used by the trading WebSocket) ──────────────────────────
 
 const PRICED_ORDER_TYPES: readonly OrderType[] = [OrderType.LO, OrderType.PLO];
 const FCO_MAX_RANGE_DAYS = 31;

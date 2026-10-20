@@ -1,6 +1,6 @@
 # API_METHODS.md - every public method
 
-> Written by hand from `src/` for 3.3.0 (the Python SDK generates its list; keep this file in step when a method is added or renamed).
+> Written by hand from `src/` for 3.3.2 (the Python SDK generates its list; keep this file in step when a method is added or renamed).
 > Narrative guides: `README.md` (usage), `AGENT.md` (cheat sheet), `CHANGELOG.md`.
 
 Clients: `Auth`, `Data`, `Trading`, `Stream` (see `src/client.ts`). Every method that talks to the network returns a `Promise`.
@@ -42,6 +42,8 @@ Reach it through `data.marketData`.
 | `getSecuritiesSummary` / `getSecuritiesSummaryHistorical` | `(symbol)` / `(symbol, from, to)` | Securities summary (today / date range). |
 | `getSecuritiesSummaryByIndex` / `...ByIndexHistorical` | `(index)` / `(index, from, to)` | Summary of an index's members. |
 | `getMasterData` / `getMasterDataHistorical` | `()` / `(from, to)` | Ceiling, floor and reference prices. |
+| `getCorporateActions` | `(symbol?: string, language = 'vn') => CorporateAction[]` | Today's corporate actions (dividends, bonus shares, rights issues, ...). |
+| `getCorporateActionsHistorical` | `(from: string, to: string, symbol?: string, language = 'vn') => CorporateAction[]` | Corporate actions in a past date range (at most 5 days). |
 
 ## Account
 
@@ -130,10 +132,10 @@ Callbacks and state (assign a function to `on*`):
 | `onConnection` | `ConnectionEvent`: connected / reconnected / disconnected / failed. |
 | `isConnected`, `reconnectCount`, `lastError` | Connection state. |
 
-## Trading WebSocket (EXPERIMENTAL)
+## Trading WebSocket
 
-`import { asyncTradingWs } from '@ssi.developer/ssi-sdk/experimental'`; `const ws = await asyncTradingWs(auth)`.
-Not exported from the main entry. Commands are never retried; order methods return the `PD` ack and the outcome comes on the order events.
+`import { asyncTradingWs } from '@ssi.developer/ssi-sdk'`; `const ws = await asyncTradingWs(auth)`.
+`Trading` and `Stream` never connect to it. Commands are never retried; order methods return the `PD` ack and the outcome comes on the order events.
 
 | Method | Arguments | What it does |
 |---|---|---|

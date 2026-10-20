@@ -1,7 +1,7 @@
 # AGENT.md - guide for developers and AI agents using @ssi.developer/ssi-sdk
 
 Instructions, patterns and conventions for AI coding assistants (Claude, Gemini, Cursor, Copilot, ...) and humans integrating
-the `@ssi.developer/ssi-sdk` Node.js / TypeScript package (version 3.3.0). The full method list is in `API_METHODS.md`,
+the `@ssi.developer/ssi-sdk` Node.js / TypeScript package (version 3.3.2). The full method list is in `API_METHODS.md`,
 changes are in `CHANGELOG.md`, usage in `README.md`.
 
 ---
@@ -28,7 +28,7 @@ Rules of the design:
    Responses return money as `number`. Never do float arithmetic on a price you send.
 5. Only `GET` is retried (timeouts). Orders, FCO, OTP and auth `POST`/`PUT`/`DELETE` are sent once: use `clientRequestId` as
    an idempotency key and check the order book before resending after an error.
-6. The experimental trading WebSocket lives in a separate entry point: `@ssi.developer/ssi-sdk/experimental`.
+6. The trading WebSocket is exported from the main entry (`asyncTradingWs`) and is an explicit opt-in call: `Trading` and `Stream` never connect to it.
 
 ---
 
@@ -78,6 +78,7 @@ Smart OTP: `const { transactionId } = await auth.requestOtpTyped()`, then
 | `getSecuritiesInfo(symbol)` / `...ByIndex` / `...ByBoard` | `SecuritiesInfo` | |
 | `getSecuritiesSummary(symbol)` / `...Historical` / `...ByIndex` | `SecuritiesSummary[]` | follows `pagesCount` |
 | `getMasterData()` / `getMasterDataHistorical(from, to)` | `MasterData[]` | ceiling, floor, reference |
+| `getCorporateActions(symbol?, language?)` / `getCorporateActionsHistorical(from, to, symbol?, language?)` | `CorporateAction[]` | follows `pagesCount`; at most 5 days per request; all fields are strings |
 
 `getOhlc1WeekHistorical` / `getOhlc1MonthHistorical` throw `ValidationError` (the server rejects them).
 
@@ -122,17 +123,17 @@ Typed callbacks: `onMarketFlag`, `onIndexSummary`, `onOrder`, `onOrderMatch`, `o
 (capped exponential backoff, fresh token each time, resubscribe), so do not rebuild it on a drop. Interval topics accept only
 `tick`, `1m`, `5m`. `buildTopic` / `buildTopics` build validated topic strings.
 
-### 3.6 Experimental trading WebSocket
+### 3.6 Trading WebSocket
 
 ```typescript
-import { asyncTradingWs } from '@ssi.developer/ssi-sdk/experimental';
+import { asyncTradingWs } from '@ssi.developer/ssi-sdk';
 const ws = await asyncTradingWs(auth);           // connects to Config.tradingWsUrl
 await ws.subscribeOrderEvents('1234561');
 const ack = await ws.placeOrder('1234561', 'SSI', OrderSide.BUY, 100, '25000', OrderType.LO, 'my-id-1');
 await ws.close();
 ```
 
-Use it only against an environment you were told supports it. It is not part of `Trading` or `Stream`. Orders return the `PD`
+It is not part of `Trading` or `Stream`; call `asyncTradingWs(auth)` explicitly. Orders return the `PD`
 ack; the outcome arrives on order events (`ws.client.onEvent`). A command that times out is not retried.
 
 ---

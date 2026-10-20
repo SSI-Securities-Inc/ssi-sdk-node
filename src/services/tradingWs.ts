@@ -1,6 +1,6 @@
 /**
- * EXPERIMENTAL trading WebSocket service: order entry, FCO and account queries over one socket.
- * Not exported from the main entry point; see `@ssi.developer/ssi-sdk/experimental`.
+ * Trading WebSocket service: order entry, FCO and account queries over one socket. Open it with
+ * `asyncTradingWs(auth)`; `Trading` and `Stream` never connect to it.
  *
  * Order methods return the immediate ack (`orderStatus` `PD`); the outcome arrives on the order
  * events (`subscribeOrderEvents`). Commands are never retried.
